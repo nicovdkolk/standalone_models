@@ -29,6 +29,7 @@ class Physics:
 
     def rotate_z(self, xyz, angle):
         """Rotate point around z-axis by angle (radians)."""
+        # Apply standard 3×3 rotation matrix about the z-axis to the input vector.
         rot_matrix = [
             [math.cos(angle), -math.sin(angle), 0],
             [math.sin(angle), math.cos(angle), 0],

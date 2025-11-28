@@ -17,7 +17,7 @@ class DieselEngine:
         - "%MCR": List of load percentages [0-1.0]
         - "SFOC": List of SFOC values [kg/kWh]
     - Float value for SFOC [kg/kWh] at CSR
-    
+
     If a dict with keys "%MCR" and "SFOC" is provided, it is used as the SFOC values and curve.
     If a float value for SFOC is provided, it is applied with default SFOC curves for high speed,
     medium speed and low speed engines.
@@ -28,6 +28,8 @@ class DieselEngine:
     - Medium speed (2000-18000 kW): 0.180 kg/kWh at 85% MCR
     - Low speed (>18000 kW): 0.160 kg/kWh at 65% MCR
     """
+
+    # Configure engine load limits and default SFOC/CSR values by speed class.
 
     DEFAULT_SFOC_HIGH_SPEED = 0.190
     DEFAULT_SFOC_MEDIUM_SPEED = 0.180
@@ -43,6 +45,7 @@ class DieselEngine:
             mcr: float = None,
             csr: float = None,
     ):
+        # Determine CSR and SFOC curve configuration based on engine rating.
         self.mcr = mcr #this is the only mandatory parameter
         if csr is not None:
             self.csr = csr
@@ -99,6 +102,7 @@ class DieselEngine:
 
 
     def sfoc_at_load(self, percentage_mcr: float) -> float:
+        # Return SFOC by interpolating along the %MCR curve.
         return self.sfoc_interpolator(percentage_mcr)
 
 
@@ -117,6 +121,7 @@ class DieselEngine:
         float
             Fuel consumption [kg/h]
         """
+        # Convert brake power and interpolated SFOC into hourly fuel use.
         return max(0, self.sfoc_at_load(brake_power / self.mcr) * brake_power)
 
 
@@ -135,4 +140,5 @@ class DieselEngine:
         bool
             True if load is valid
         """
+        # Confirm requested brake power sits within typical operational band.
         return 0.15 <= brake_power <= self.mcr

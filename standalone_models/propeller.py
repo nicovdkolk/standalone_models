@@ -17,6 +17,7 @@ from scipy.interpolate import interp1d
 class LoadCase:
     """Simple load case class for propeller calculations."""
     def __init__(self, speed: float):
+        # Store ship speed for reuse in solver routines.
         self.speed = speed
 
 
@@ -118,6 +119,7 @@ class Propeller:
         """Initialize Wageningen B model."""
         from .wageningen_b import WageningenB
 
+        # Instantiate polynomial model with provided geometric ratios.
         self.model = WageningenB(
             pitch_diameter_ratio=self.pitch_diameter_ratio,
             blade_area_ratio=self.blade_area_ratio,
@@ -140,6 +142,7 @@ class Propeller:
         if J_kt != J_kq:
             raise ValueError("KT and KQ curves must have the same J values")
 
+        # Build CustomCurves interpolator using the aligned KT/KQ tables.
         self.model = CustomCurves(
             J_values=J_kt,
             KT_values=KT,
@@ -167,6 +170,7 @@ class Propeller:
         float
             Delivered power efficiency [-]
         """
+        # Evaluate delivered power efficiency via scalar, lookup table, or callable.
         if isinstance(self.eta_delivered_power, (int, float)):
             return float(self.eta_delivered_power)
         elif self.eta_delivered_power_interpolator is not None:
@@ -178,18 +182,21 @@ class Propeller:
 
     def _evaluate_mapping(self, value: Union[float, Callable[[LoadCase], float]], loadcase: LoadCase) -> float:
         """Evaluate scalar or callable mapping against a loadcase."""
+        # Call provided mapping when necessary to resolve speed-dependent inputs.
         if callable(value):
             return float(value(loadcase))
         return float(value)
 
     def _wake_fraction_at_loadcase(self, loadcase: LoadCase) -> float:
         """Return wake fraction for the loadcase, defaulting to 0.0 if missing."""
+        # Use default wake fraction when none is supplied.
         if self.wake_fraction is None:
             return 0.0
         return self._evaluate_mapping(self.wake_fraction, loadcase)
 
     def _thrust_deduction_at_loadcase(self, loadcase: LoadCase) -> float:
         """Return thrust deduction for the loadcase, defaulting to 0.0 if missing."""
+        # Use default thrust deduction when none is supplied.
         if self.thrust_deduction is None:
             return 0.0
         return self._evaluate_mapping(self.thrust_deduction, loadcase)
@@ -200,6 +207,7 @@ class Propeller:
         thrust is actually the residual in x, which can be +/- or zero
         effective power can only be greater or equal to zero
         """
+        # Translate net thrust demand into effective power while preventing negative outputs.
         return max(0, thrust * loadcase.speed)
 
     def delivered_power(self, loadcase: LoadCase, effective_power: float) -> float:
@@ -227,7 +235,7 @@ class Propeller:
         delivered_power_w = self.delivered_power_from_thrust(net_thrust, loadcase.speed)
         if delivered_power_w is None:
             raise ValueError("eta_delivered_power is not set and model calculation failed")
-        
+
         return delivered_power_w
 
 
@@ -241,6 +249,7 @@ class Propeller:
         2. Wageningen B polynomial model
         3. Custom KT/KQ curves
         """
+        # Route delivered power through the best available model to estimate thrust.
         loadcase = LoadCase(speed)
         wake_fraction = self._evaluate_mapping(wake_fraction, loadcase)
         thrust_deduction = self._evaluate_mapping(thrust_deduction, loadcase)
@@ -267,6 +276,7 @@ class Propeller:
 
     def delivered_power_from_thrust(self, thrust: float, speed: float) -> Optional[float]:
         """Unified solver: thrust (net, after thrust deduction) → delivered power."""
+        # Select the appropriate model path to back-calculate delivered power from thrust.
         loadcase = LoadCase(speed)
         wake_fraction = self._wake_fraction_at_loadcase(loadcase)
         thrust_deduction = self._thrust_deduction_at_loadcase(loadcase)
@@ -318,6 +328,7 @@ class Propeller:
         float
             Advance coefficient J [-]
         """
+        # Translate RPM and inflow speed into the non-dimensional advance coefficient.
         n_rps = rpm / 60  # Convert to rev/s
         v_a = speed * (1 - wake_fraction)
         return v_a / (n_rps * self.dia_prop) if n_rps > 0 else 0.0
@@ -429,6 +440,7 @@ class Propeller:
             return None
 
         n_rps = rpm / 60
+        # Convert torque at the shaft into delivered mechanical power.
         return Q * 2 * np.pi * n_rps
 
     # === Inverse Methods (for optimization) ===
@@ -468,6 +480,7 @@ class Propeller:
         if self.model is None or self.physics is None:
             return None
 
+        # Solve for RPM that satisfies the target thrust using KT curves.
         def residual(rpm):
             T_calc = self.thrust_from_rpm(rpm[0], speed, wake_fraction, thrust_deduction)
             return T_calc - thrust if T_calc is not None else float('inf')
@@ -516,6 +529,7 @@ class Propeller:
         if self.model is None or self.physics is None:
             return None
 
+        # Solve for RPM that absorbs the requested delivered power.
         def residual(rpm):
             P_calc = self.power_from_rpm(rpm[0], speed, wake_fraction)
             return P_calc - power if P_calc is not None else float('inf')
@@ -537,6 +551,7 @@ class Propeller:
     @property
     def has_model(self) -> bool:
         """Check if advanced propeller model is available."""
+        # Indicate whether KT/KQ model support is configured.
         return self.model is not None
 
     def get_optimal_J(self) -> Optional[float]:
@@ -548,6 +563,7 @@ class Propeller:
         Optional[float]
             Optimal advance coefficient, or None if no model
         """
+        # Defer to the model to report its preferred operating advance coefficient.
         if self.model is None:
             return None
 
