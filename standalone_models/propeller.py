@@ -498,6 +498,11 @@ class Propeller:
             return None
 
         if hasattr(self.model, 'max_efficiency_J'):
-            return self.model.max_efficiency_J()
+            # Handle both property and method cases
+            max_eff_J = self.model.max_efficiency_J
+            if callable(max_eff_J):
+                return max_eff_J()
+            else:
+                return max_eff_J
         else:
             return None

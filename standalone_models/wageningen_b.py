@@ -399,6 +399,10 @@ class WageningenB:
         kt = self.calculate_kt(J, reynolds_number=reynolds_number)
         kq = self.calculate_kq(J, reynolds_number=reynolds_number)
 
+        # Ensure kt and kq are arrays for indexing
+        kt = np.asarray(kt)
+        kq = np.asarray(kq)
+
         # Avoid division by zero
         eta_0 = np.zeros_like(J, dtype=float)
         nonzero_mask = kq != 0

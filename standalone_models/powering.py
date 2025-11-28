@@ -53,8 +53,17 @@ class Powering:
         self.shaftlines = n_shaftlines
         self.hotel_load = hotel_load
         
-        self.main_engine = DieselEngine(me_sfoc, me_mcr, me_csr)
-        self.gensets = [DieselEngine(genset_sfoc, genset_mcr, genset_csr) for _ in range(n_gensets)]
+        # Only create main engine if me_mcr is provided (not needed in DE mode)
+        if me_mcr is not None:
+            self.main_engine = DieselEngine(me_sfoc, me_mcr, me_csr)
+        else:
+            self.main_engine = None
+        
+        # Only create gensets if genset_mcr is provided
+        if genset_mcr is not None and n_gensets > 0:
+            self.gensets = [DieselEngine(genset_sfoc, genset_mcr, genset_csr) for _ in range(n_gensets)]
+        else:
+            self.gensets = []
      
         self.eta_converters = eta_converters
         self.eta_gearbox = eta_gearbox if eta_gearbox is not None else 1
@@ -71,10 +80,11 @@ class Powering:
         else:
             self.eta_generator = 0.96
 
-        # Store genset parameters for validation
+        # Store parameters for validation
         self.n_gensets = n_gensets
         self.genset_mcr = genset_mcr
         self.pti_pto_kw = pti_pto_kw
+        self.me_mcr = me_mcr  # Store for validation
 
         # Validate configuration after initialization
         self._validate_configuration()
@@ -91,7 +101,7 @@ class Powering:
         if self.pti_pto and self.pti_pto_kw is None:
             raise ValueError("PTI/PTO mode requires pti_pto_kw")
 
-        if not self.diesel_electric and self.main_engine.mcr is None:
+        if not self.diesel_electric and self.me_mcr is None:
             raise ValueError("DD mode requires main_engine MCR")
 
 
@@ -131,7 +141,9 @@ class Powering:
         power_brake = 0.0
         
         if self.pti_pto:
-
+            if self.main_engine is None:
+                raise ValueError("PTI/PTO mode requires main_engine (me_mcr must be provided)")
+            
             required_brake_power_m = shaft_power / self.eta_gearbox  # kWm
             required_brake_power_e = min(self.pti_pto_kw, grid_load) / (self.eta_converters * self.eta_pti_pto)  # kWm, limited by PTI/PTO power
             
@@ -168,6 +180,8 @@ class Powering:
 
     def main_engine_fc(self, power_brake: float) -> float:
         """Calculate main engine fuel consumption in kg/h"""
+        if self.main_engine is None:
+            return 0.0
         return self.main_engine.fuel_consumption(power_brake)
 
 

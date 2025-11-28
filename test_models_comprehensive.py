@@ -83,11 +83,11 @@ class LoadCase:
 loadcases = [
     LoadCase("Zero Speed", 0.0),
     LoadCase("Slow Speed", 2.5),
-    LoadCase("Low Speed", 5.0),
-    LoadCase("Cruise Speed", 10.0),
-    LoadCase("High Speed", 15.0),
-    LoadCase("Max Speed", 20.0),
-    LoadCase("Very High Speed", 25.0),
+    LoadCase("Low Speed", 4.0),
+    LoadCase("Cruise Speed", 5.0),
+    LoadCase("High Speed", 6.0),
+    LoadCase("Max Speed", 7.0),
+    LoadCase("Very High Speed", 8.0),
 ]
 
 print("\nTest Loadcases:")
@@ -126,6 +126,7 @@ print("SECTION 4: PROPELLER CONFIGURATIONS")
 print("=" * 80)
 
 # Configuration 1: Wageningen B-series propeller
+# NOTE: Do NOT set eta_delivered_power for advanced models - they use KT/KQ curves instead
 propeller_wageningen = Propeller(
     propeller_model="wageningen_b",
     dia_prop=4.5,              # m
@@ -137,11 +138,12 @@ propeller_wageningen = Propeller(
     number_of_blades=4,
     max_rpm=200.0,
     nominal_rpm=150.0,
-    eta_delivered_power=0.65,  # Constant efficiency
+    # eta_delivered_power removed - will use Wageningen B KT/KQ model
     physics=physics
 )
 
 # Configuration 2: Custom curves propeller
+# NOTE: Do NOT set eta_delivered_power for advanced models - they use KT/KQ curves instead
 J_custom = np.linspace(0.1, 1.2, 20)
 KT_custom = 0.5 - 0.3 * J_custom + 0.1 * J_custom**2
 KQ_custom = 0.05 - 0.02 * J_custom + 0.01 * J_custom**2
@@ -154,7 +156,7 @@ propeller_custom = Propeller(
     n_prop=2,
     max_rpm=200.0,
     nominal_rpm=150.0,
-    eta_delivered_power=0.65,
+    # eta_delivered_power removed - will use custom KT/KQ curves
     kt_curve={"J": J_custom.tolist(), "KT": KT_custom.tolist()},
     kq_curve={"J": J_custom.tolist(), "KQ": KQ_custom.tolist()},
     physics=physics
@@ -190,6 +192,7 @@ propeller_variable_eta = Propeller(
 )
 
 # Configuration 5: Single propeller (n_prop=1)
+# NOTE: Do NOT set eta_delivered_power for advanced models - they use KT/KQ curves instead
 propeller_single = Propeller(
     propeller_model="wageningen_b",
     dia_prop=4.5,
@@ -201,7 +204,7 @@ propeller_single = Propeller(
     number_of_blades=4,
     max_rpm=200.0,
     nominal_rpm=150.0,
-    eta_delivered_power=0.65,
+    # eta_delivered_power removed - will use Wageningen B KT/KQ model
     physics=physics
 )
 
@@ -296,7 +299,18 @@ def test_propeller_thrust_from_power(propeller, loadcase, power_kw):
         propeller.wake_fraction,
         propeller.thrust_deduction
     )
+    if thrust is None:
+        return None
     return thrust / 1000  # Convert to kN
+
+def test_propeller_power_from_thrust(propeller, loadcase, thrust_kn):
+    """Test: Given thrust, calculate delivered power."""
+    thrust_n = thrust_kn * 1000
+    power_w = propeller.delivered_power_from_thrust(
+        thrust_n,
+        loadcase.speed
+    )
+    return power_w / 1000 if power_w is not None else None  # Convert to kW
 
 def test_propeller_power_from_rpm(propeller, loadcase, rpm):
     """Test: Given RPM, calculate power and thrust."""
@@ -392,7 +406,7 @@ def test_powering_flow(propeller, powering, loadcase, thrust_kn, est_power_kw=0.
     total_fc = powering.total_fc(main_engine_fc, genset_fc)
     
     # Step 7: Validate engine load
-    engine_valid = powering.main_engine.is_valid_load(brake_power_kwm) if brake_power_kwm > 0 else True
+    engine_valid = (powering.main_engine.is_valid_load(brake_power_kwm) if powering.main_engine is not None and brake_power_kwm > 0 else True)
     
     return {
         "effective_power_kw": effective_power_w / 1000,
@@ -574,7 +588,8 @@ if not df_efficiency.empty:
 # Test variable efficiency
 print("\nVariable Efficiency Testing:")
 for lc in [loadcases[1], loadcases[3], loadcases[5]]:
-    eta_const = propeller_wageningen.eta_D_at_speed(lc)
+    # Use propeller_simple for constant efficiency (it has eta_delivered_power set)
+    eta_const = propeller_simple.eta_D_at_speed(lc)
     eta_var = propeller_variable_eta.eta_D_at_speed(lc)
     print(f"  {lc.name} ({lc.speed} m/s): Constant={eta_const:.3f}, Variable={eta_var:.3f}")
 
@@ -670,7 +685,7 @@ for prop_name, prop in [("Wageningen B", propeller_wageningen),
 print("\n3. Engine Load Validation:")
 test_powers = [100, 1000, 3000, 5000, 6000, 10000]  # kW
 for power_kw in test_powers:
-    is_valid = powering_dd.main_engine.is_valid_load(power_kw)
+    is_valid = powering_dd.main_engine.is_valid_load(power_kw) if powering_dd.main_engine is not None else False
     edge_case_results.append({
         "test": "Engine Load Validation",
         "propeller": "N/A",
@@ -772,6 +787,37 @@ df_est = pd.DataFrame(est_test_results)
 if not df_est.empty:
     print("\nEST Power Consumption Impact:")
     print(df_est.pivot(index="est_power_kw", columns="powering_mode", values="total_fc_kg_h").to_string())
+
+# Power from Thrust Test
+print("\n" + "=" * 80)
+print("Power from Thrust Test")
+print("=" * 80)
+
+test_thrust_kn = 200.0
+results_power = []
+
+for lc in loadcases:
+    for prop_name, prop in propellers.items():
+        try:
+            power_kw = test_propeller_power_from_thrust(prop, lc, test_thrust_kn)
+            if power_kw is not None:
+                results_power.append({
+                    "loadcase": lc.name,
+                    "speed_ms": lc.speed,
+                    "propeller": prop_name,
+                    "thrust_kn": test_thrust_kn,
+                    "power_kw": power_kw
+                })
+        except Exception as e:
+            print(f"  Error with {prop_name} at {lc.name}: {e}")
+
+df_power = pd.DataFrame(results_power)
+if not df_power.empty:
+    print(f"\nPower from Thrust ({test_thrust_kn} kN):")
+    pivot = df_power.pivot(index="loadcase", columns="propeller", values="power_kw")
+    print(pivot.to_string())
+else:
+    print("\nNo results for power from thrust test.")
 
 # ============================================================================
 # SECTION 15: MULTIPLE PROPELLER COMPARISON
@@ -900,7 +946,7 @@ for power_kw in power_levels:
     for speed in speeds:
         lc = LoadCase("", speed)
         thrust = test_propeller_thrust_from_power(propeller_wageningen, lc, power_kw)
-        thrusts.append(thrust)
+        thrusts.append(thrust if thrust is not None else np.nan)
     ax1.plot(speeds, thrusts, label=f"{power_kw} kW", linewidth=2)
 
 ax1.set_xlabel("Speed [m/s]")
@@ -1043,7 +1089,8 @@ eta_var = []
 
 for speed in speeds_test:
     lc = LoadCase("", speed)
-    eta_const.append(propeller_wageningen.eta_D_at_speed(lc))
+    # Use propeller_simple for constant efficiency (it has eta_delivered_power set)
+    eta_const.append(propeller_simple.eta_D_at_speed(lc))
     eta_var.append(propeller_variable_eta.eta_D_at_speed(lc))
 
 ax10.plot(speeds_test, eta_const, label="Constant", linewidth=2)

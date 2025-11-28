@@ -148,18 +148,24 @@ class CustomCurves:
             Propeller efficiency η₀ [-]
         """
         J = np.asarray(J)
-        kt = self.calculate_kt(J)
-        kq = self.calculate_kq(J)
+        is_scalar = J.ndim == 0
+        
+        # Ensure J is at least 1D for array operations
+        J_work = J if not is_scalar else np.array([J])
+        
+        # Calculate KT and KQ - ensure they're arrays
+        kt = np.asarray(self.calculate_kt(J_work))
+        kq = np.asarray(self.calculate_kq(J_work))
 
         # Calculate efficiency
-        eta_0 = np.zeros_like(J, dtype=float)
+        eta_0 = np.zeros_like(J_work, dtype=float)
         nonzero_mask = kq > 1e-10  # Avoid division by very small numbers
-        eta_0[nonzero_mask] = (J[nonzero_mask] / (2 * np.pi)) * (kt[nonzero_mask] / kq[nonzero_mask])
+        eta_0[nonzero_mask] = (J_work[nonzero_mask] / (2 * np.pi)) * (kt[nonzero_mask] / kq[nonzero_mask])
 
         # Clamp efficiency to reasonable range
         eta_0 = np.clip(eta_0, 0.0, 1.0)
 
-        return float(eta_0) if J.ndim == 0 else eta_0
+        return float(eta_0[0]) if is_scalar else eta_0
 
     def max_efficiency_J(self) -> float:
         """
