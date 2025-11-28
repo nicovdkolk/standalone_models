@@ -16,6 +16,8 @@ class Powering:
     Uses DieselEngine class for main engine and genset fuel consumption calculations.
     """
 
+    # Encapsulate drivetrain configuration and associated fuel/efficiency calculations.
+
     def __init__(
         self,
 
@@ -47,7 +49,7 @@ class Powering:
         eta_electric_motor: float = None,  # Electric motor efficiency
         eta_pti_pto: float = None,  # PTI/PTO efficiency
     ):
-
+        # Initialize propulsion chain components and efficiencies for configured architecture.
         self.diesel_electric = diesel_electric
         self.pti_pto = pti_pto
         self.shaftlines = n_shaftlines
@@ -91,6 +93,7 @@ class Powering:
 
     def _validate_configuration(self):
         """Validate configuration after initialization."""
+        # Ensure mutually exclusive modes and required parameters are set.
         if self.diesel_electric and self.pti_pto:
             raise ValueError("Cannot enable both diesel_electric and pti_pto modes")
 
@@ -106,12 +109,14 @@ class Powering:
 
 
     def shaft_power_from_delivered_power(self, delivered_power: float) -> float:
+        # Convert delivered shaft power back to mechanical shaft requirement.
         return delivered_power / self.eta_shaft
 
 
     def consumers(self, EST_power_consumption: float) -> float:
         """consumers on electrical grid kWe
         considering hotel load and EST power consumption"""
+        # Combine hotel load with electrical side-consumer demand.
         return EST_power_consumption + self.hotel_load
 
 
@@ -137,6 +142,7 @@ class Powering:
             (grid_load [kWe], brake_power [kWm])
         """
 
+        # Resolve electrical and mechanical demand paths for the configured propulsion mode.
         grid_load = consumers
         power_brake = 0.0
         
@@ -174,6 +180,7 @@ class Powering:
 
 
     def power_brake(self, consumers: float, shaft_power: float) -> float:
+        # Helper: return only main-engine brake power portion.
         _, power_brake = self.grid_load_and_brake_power_from_consumers_and_shaft_power(consumers, shaft_power)
         return power_brake
 
@@ -182,6 +189,7 @@ class Powering:
         """Calculate main engine fuel consumption in kg/h"""
         if self.main_engine is None:
             return 0.0
+        # Delegate fuel burn to the DieselEngine instance.
         return self.main_engine.fuel_consumption(power_brake)
 
 
@@ -189,11 +197,13 @@ class Powering:
         """number of gensets active, limited to the total number of gensets"""
         if len(self.gensets) == 0:
             return 0
+        # Round up required genset count and cap at installed quantity.
         return int(min(math.ceil(grid_load / self.eta_generator / self.gensets[0].csr), self.n_gensets))
 
 
     def aux_power_per_genset(self, grid_load: float, n_gensets_active: int) -> float:
         """auxilliary power per genset kWm"""
+        # Split electrical demand evenly across active gensets.
         return grid_load / self.eta_generator / n_gensets_active
 
 
@@ -202,9 +212,11 @@ class Powering:
         aux_power_per_genset is the auxiliary power per genset kWm.
         n_gensets_active is the number of gensets active.
         """
+        # Sum fuel burn from each active genset at the shared auxiliary load.
         return sum(self.gensets[i].fuel_consumption(aux_power_per_genset) for i in range(n_gensets_active))
-    
+
 
     def total_fc(self, main_engine_fc: float, genset_fc: float) -> float:
         """Calculate total fuel consumption in kg/h"""
+        # Combine main engine and genset fuel consumption into fleet total.
         return main_engine_fc + genset_fc

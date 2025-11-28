@@ -242,7 +242,7 @@ class WageningenB:
         self.pitch_diameter_ratio = pitch_diameter_ratio
         self.blade_area_ratio = blade_area_ratio
         self.number_of_blades = number_of_blades
-    
+
 
         # Pre-compute power terms for efficiency
         self._pd_power = pitch_diameter_ratio
@@ -258,6 +258,7 @@ class WageningenB:
     def _delta_kt(self, J: np.ndarray, reynolds_number: float) -> np.ndarray:
         """Compute ΔKT correction for Reynolds numbers above 2×10^6."""
 
+        # Apply empirical Reynolds-number adjustments to KT at given J values.
         log_r = self._log_reynolds_term(reynolds_number)
 
         return (
@@ -277,6 +278,7 @@ class WageningenB:
     def _delta_kq(self, reynolds_number: float) -> float:
         """Compute ΔKQ correction for Reynolds numbers above 2×10^6."""
 
+        # Apply empirical Reynolds-number adjustment to KQ.
         log_r = self._log_reynolds_term(reynolds_number)
 
         return (
@@ -317,6 +319,7 @@ class WageningenB:
         float or np.ndarray
             Thrust coefficient KT [-]
         """
+        # Evaluate KT polynomial and add Reynolds corrections when applicable.
         J = np.asarray(J)
         kt = np.zeros_like(J, dtype=float)
 
@@ -359,6 +362,7 @@ class WageningenB:
         float or np.ndarray
             Torque coefficient KQ [-]
         """
+        # Evaluate KQ polynomial and add Reynolds corrections when applicable.
         J = np.asarray(J)
         kq = np.zeros_like(J, dtype=float)
 
@@ -401,6 +405,7 @@ class WageningenB:
         float or np.ndarray
             Open water efficiency η₀ [-]
         """
+        # Combine KT and KQ predictions into open-water efficiency while masking invalid ratios.
         J = np.asarray(J)
         kt = self.calculate_kt(J, reynolds_number=reynolds_number)
         kq = self.calculate_kq(J, reynolds_number=reynolds_number)
@@ -427,5 +432,6 @@ class WageningenB:
         float
             Advance coefficient at maximum efficiency [-]
         """
+        # Provide a rule-of-thumb optimum based on typical series behavior.
         # Rough estimate based on typical Wageningen B-series behavior
         return 0.6

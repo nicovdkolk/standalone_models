@@ -30,6 +30,8 @@ class CustomCurves:
         Interpolation method: 'linear' or 'cubic'
     """
 
+    # Store KT/KQ data and construct interpolators for user-supplied curves.
+
     def __init__(
         self,
         J_values: List[float],
@@ -67,6 +69,7 @@ class CustomCurves:
 
     def _validate_inputs(self):
         """Validate input data."""
+        # Confirm curve arrays are aligned, monotonic, and non-negative.
         if len(self.J_values) != len(self.KT_values) or len(self.J_values) != len(self.KQ_values):
             raise ValueError("J_values, KT_values, and KQ_values must have the same length")
 
@@ -99,6 +102,7 @@ class CustomCurves:
         float or np.ndarray
             Thrust coefficient KT [-]
         """
+        # Interpolate KT and clamp below-zero artifacts to zero.
         J = np.asarray(J)
         kt = self._kt_interpolator(J)
 
@@ -123,6 +127,7 @@ class CustomCurves:
         float or np.ndarray
             Torque coefficient KQ [-]
         """
+        # Interpolate KQ and clamp below-zero artifacts to zero.
         J = np.asarray(J)
         kq = self._kq_interpolator(J)
 
@@ -147,6 +152,7 @@ class CustomCurves:
         float or np.ndarray
             Propeller efficiency η₀ [-]
         """
+        # Derive KT/KQ at requested J values and combine into η₀.
         J = np.asarray(J)
         is_scalar = J.ndim == 0
         
@@ -177,6 +183,7 @@ class CustomCurves:
         float
             Advance coefficient at maximum efficiency [-]
         """
+        # Sample the provided J domain to locate the efficiency peak.
         # Sample J range based on data
         J_min, J_max = self.J_values[0], self.J_values[-1]
         J_range = np.linspace(J_min, J_max, 100)
@@ -198,6 +205,7 @@ class CustomCurves:
         tuple[float, float]
             (J_min, J_max) range [-]
         """
+        # Report the first and last J values supplied for interpolation.
         return float(self.J_values[0]), float(self.J_values[-1])
 
     @property
@@ -210,5 +218,6 @@ class CustomCurves:
         float
             Maximum efficiency [-]
         """
+        # Compute η₀ at the optimal J for convenience.
         J_opt = self.max_efficiency_J()
         return float(self.calculate_efficiency(J_opt))
