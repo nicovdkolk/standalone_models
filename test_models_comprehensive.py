@@ -754,6 +754,80 @@ if not df_integration.empty:
             print(f"  Valid Engine Loads: {mode_data['engine_valid'].sum()}/{len(mode_data)}")
 
 # ============================================================================
+# SECTION 13B: DIRECTIONAL POWER-FLOW VALIDATION (BACKWARD VS FORWARD)
+# ============================================================================
+
+print("\n" + "=" * 80)
+print("SECTION 13B: DIRECTIONAL POWER-FLOW VALIDATION")
+print("=" * 80)
+
+directional_results = []
+
+# Focus on backward-facing (positive thrust) with a limited forward-facing (reverse) check.
+directional_cases = [
+    ("Backward Push", 300.0),
+    ("Forward-Facing Brake", -100.0),
+]
+
+for lc in [loadcases[1], loadcases[3], loadcases[5]]:  # representative low/cruise/high
+    for case_name, thrust_kn in directional_cases:
+        for prop_name, prop in [("Wageningen B", propeller_wageningen), ("Custom Curves", propeller_custom)]:
+            for powering_name, powering in [("DD", powering_dd), ("DE", powering_de)]:
+                try:
+                    result = test_powering_flow(prop, powering, lc, thrust_kn)
+                    directional_results.append({
+                        "case": case_name,
+                        "loadcase": lc.name,
+                        "speed_ms": lc.speed,
+                        "propeller": prop_name,
+                        "powering_mode": powering_name,
+                        "thrust_kn": thrust_kn,
+                        "delivered_power_kw": result["delivered_power_kw"],
+                        "shaft_power_kw": result["shaft_power_kw"],
+                        "grid_load_kwe": result["grid_load_kwe"],
+                        "brake_power_kwm": result["brake_power_kwm"],
+                        "power_sign": float(np.sign(result["delivered_power_kw"])),
+                        "brake_power_sign": float(np.sign(result["brake_power_kwm"])),
+                        "engine_valid": result["engine_valid"],
+                        "est_power_kw": result["est_power_kw"],
+                    })
+                except Exception as e:
+                    directional_results.append({
+                        "case": case_name,
+                        "loadcase": lc.name,
+                        "speed_ms": lc.speed,
+                        "propeller": prop_name,
+                        "powering_mode": powering_name,
+                        "thrust_kn": thrust_kn,
+                        "result": str(e),
+                        "status": "ERROR",
+                    })
+
+df_directional = pd.DataFrame(directional_results)
+if not df_directional.empty:
+    print("\nDirectional Power-Flow Summary (focus on backward-facing consistency):")
+    summary_cols = [
+        "case", "loadcase", "propeller", "powering_mode", "thrust_kn",
+        "delivered_power_kw", "shaft_power_kw", "grid_load_kwe",
+        "power_sign", "brake_power_sign", "engine_valid"
+    ]
+    print(df_directional[summary_cols].to_string(index=False))
+
+    # Backward-facing regression check: delivered/shaft/brake power should remain positive.
+    backward_cases = df_directional[df_directional["case"] == "Backward Push"]
+    if not backward_cases.empty:
+        invalid_power = backward_cases[(backward_cases["delivered_power_kw"] <= 0) | (backward_cases["shaft_power_kw"] <= 0)]
+        print("\nBackward-facing power-flow integrity:")
+        print(f"  Cases evaluated: {len(backward_cases)}")
+        print(f"  Non-positive power results: {len(invalid_power)}")
+
+    # Forward-facing smoke check to track sign handling without changing primary flow.
+    forward_cases = df_directional[df_directional["case"] == "Forward-Facing Brake"]
+    if not forward_cases.empty:
+        print("\nForward-facing (reverse thrust) sign observations:")
+        print(forward_cases[["loadcase", "propeller", "power_sign", "brake_power_sign", "engine_valid"]].to_string(index=False))
+
+# ============================================================================
 # SECTION 14: EST POWER CONSUMPTION IMPACT
 # ============================================================================
 
