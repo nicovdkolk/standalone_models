@@ -28,6 +28,7 @@ import pandas as pd
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple
 import warnings
+import os
 warnings.filterwarnings('ignore')
 
 # Import the models
@@ -40,6 +41,9 @@ from standalone_models import (
 plt.style.use('seaborn-v0_8-darkgrid' if 'seaborn-v0_8-darkgrid' in plt.style.available else 'default')
 plt.rcParams['figure.figsize'] = (14, 8)
 plt.rcParams['font.size'] = 10
+
+# Create results directory if it doesn't exist
+os.makedirs('results', exist_ok=True)
 
 print("=" * 80)
 print("COMPREHENSIVE TESTING NOTEBOOK FOR PROPELLER AND POWERING MODELS")
@@ -1039,8 +1043,8 @@ ax1_6.legend()
 ax1_6.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig("test_results_comprehensive_group1_speed_backwards.png", dpi=150, bbox_inches='tight')
-print("  Saved: test_results_comprehensive_group1_speed_backwards.png")
+plt.savefig("results/test_results_comprehensive_group1_speed_backwards.png", dpi=150, bbox_inches='tight')
+print("  Saved: results/test_results_comprehensive_group1_speed_backwards.png")
 plt.close()
 
 # ============================================================================
@@ -1171,8 +1175,8 @@ ax2_6.legend()
 ax2_6.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig("test_results_comprehensive_group2_speed_forwards.png", dpi=150, bbox_inches='tight')
-print("  Saved: test_results_comprehensive_group2_speed_forwards.png")
+plt.savefig("results/test_results_comprehensive_group2_speed_forwards.png", dpi=150, bbox_inches='tight')
+print("  Saved: results/test_results_comprehensive_group2_speed_forwards.png")
 plt.close()
 
 # ============================================================================
@@ -1307,8 +1311,8 @@ ax3_6.legend()
 ax3_6.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig("test_results_comprehensive_group3_power_rpm_torque.png", dpi=150, bbox_inches='tight')
-print("  Saved: test_results_comprehensive_group3_power_rpm_torque.png")
+plt.savefig("results/test_results_comprehensive_group3_power_rpm_torque.png", dpi=150, bbox_inches='tight')
+print("  Saved: results/test_results_comprehensive_group3_power_rpm_torque.png")
 plt.close()
 
 # ============================================================================
@@ -1417,8 +1421,8 @@ if not df_curves.empty and not df_efficiency.empty:
         ax4_6.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig("test_results_comprehensive_group4_efficiency_performance.png", dpi=150, bbox_inches='tight')
-print("  Saved: test_results_comprehensive_group4_efficiency_performance.png")
+plt.savefig("results/test_results_comprehensive_group4_efficiency_performance.png", dpi=150, bbox_inches='tight')
+print("  Saved: results/test_results_comprehensive_group4_efficiency_performance.png")
 plt.close()
 
 # ============================================================================
@@ -1473,8 +1477,8 @@ ax5_2.grid(True, alpha=0.3)
 # Additional plots can be added here following the same pattern...
 
 plt.tight_layout()
-plt.savefig("test_results_comprehensive_group5_powering_modes.png", dpi=150, bbox_inches='tight')
-print("  Saved: test_results_comprehensive_group5_powering_modes.png")
+plt.savefig("results/test_results_comprehensive_group5_powering_modes.png", dpi=150, bbox_inches='tight')
+print("  Saved: results/test_results_comprehensive_group5_powering_modes.png")
 plt.close()
 
 print("\nAll visualization groups saved successfully!")
