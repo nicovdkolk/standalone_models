@@ -174,6 +174,26 @@ class Propeller:
         else:
             raise ValueError("eta_delivered_power is not set")
 
+    # === Helpers ===
+
+    def _evaluate_mapping(self, value: Union[float, Callable[[LoadCase], float]], loadcase: LoadCase) -> float:
+        """Evaluate scalar or callable mapping against a loadcase."""
+        if callable(value):
+            return float(value(loadcase))
+        return float(value)
+
+    def _wake_fraction_at_loadcase(self, loadcase: LoadCase) -> float:
+        """Return wake fraction for the loadcase, defaulting to 0.0 if missing."""
+        if self.wake_fraction is None:
+            return 0.0
+        return self._evaluate_mapping(self.wake_fraction, loadcase)
+
+    def _thrust_deduction_at_loadcase(self, loadcase: LoadCase) -> float:
+        """Return thrust deduction for the loadcase, defaulting to 0.0 if missing."""
+        if self.thrust_deduction is None:
+            return 0.0
+        return self._evaluate_mapping(self.thrust_deduction, loadcase)
+
 
     def effective_power(self, loadcase: LoadCase, thrust: float) -> float:
         """Calculate the effective power for this loadcase.
@@ -188,42 +208,70 @@ class Propeller:
 
 
     def thrust_from_power(self, Pe: float, speed: float,
-                         wake_fraction: float, thrust_deduction: float) -> float:
+                         wake_fraction: float, thrust_deduction: float) -> Optional[float]:
         """
-        Calculate thrust from delivered power (current simple model).
+        Calculate thrust from delivered power, auto-selecting model priority.
 
-        Simple model: T = Pe × η_D / v_a
-        where v_a = speed × (1 - wake_fraction)
-
-        Parameters:
-        -----------
-        Pe : float
-            Delivered power [W]
-        speed : float
-            Ship speed [m/s]
-        wake_fraction : float
-            Wake fraction w [-]
-        thrust_deduction : float
-            Thrust deduction t [-]
-
-        Returns:
-        --------
-        float
-            Thrust [N]
+        Priority (first available):
+        1. Simple thrust model using η_D
+        2. Wageningen B polynomial model
+        3. Custom KT/KQ curves
         """
-        v_a = speed * (1 - wake_fraction)
-        if v_a <= 0:
-            return 0.0
-
-        # Get eta_D at this speed (create a simple LoadCase for compatibility)
         loadcase = LoadCase(speed)
-        eta_D_value = self.eta_D_at_speed(loadcase)
-        
-        # Simple model thrust
-        T_gross = Pe * eta_D_value / v_a
+        wake_fraction = self._evaluate_mapping(wake_fraction, loadcase)
+        thrust_deduction = self._evaluate_mapping(thrust_deduction, loadcase)
 
-        # Apply thrust deduction
-        return T_gross * (1 - thrust_deduction)
+        # 1) Simple thrust model
+        if self.eta_delivered_power is not None:
+            v_a = speed * (1 - wake_fraction)
+            if v_a <= 0:
+                return 0.0
+
+            eta_D_value = self.eta_D_at_speed(loadcase)
+            T_gross = Pe * eta_D_value / v_a
+            return T_gross * (1 - thrust_deduction)
+
+        # 2/3) Advanced models: use RPM inverse to maintain consistency
+        if self.model is None or self.physics is None:
+            return None
+
+        rpm_solution = self.rpm_from_power_speed(Pe, speed, wake_fraction, initial_rpm=self.nominal_rpm or 100.0)
+        if rpm_solution is None:
+            return None
+
+        return self.thrust_from_rpm(rpm_solution, speed, wake_fraction, thrust_deduction)
+
+    def delivered_power_from_thrust(self, thrust: float, speed: float) -> Optional[float]:
+        """Unified solver: thrust (net, after thrust deduction) → delivered power."""
+        loadcase = LoadCase(speed)
+        wake_fraction = self._wake_fraction_at_loadcase(loadcase)
+        thrust_deduction = self._thrust_deduction_at_loadcase(loadcase)
+
+        # 1) Simple thrust model using eta_D
+        if self.eta_delivered_power is not None:
+            v_a = speed * (1 - wake_fraction)
+            if v_a <= 0:
+                return 0.0
+
+            eta_D_value = self.eta_D_at_speed(loadcase)
+            gross_thrust = thrust / (1 - thrust_deduction) if thrust_deduction < 1 else float('inf')
+            return gross_thrust * v_a / eta_D_value
+
+        # 2/3) Advanced models require physics and hydrodynamic model
+        if self.model is None or self.physics is None:
+            return None
+
+        rpm_solution = self.rpm_from_thrust_speed(
+            thrust=thrust,
+            speed=speed,
+            wake_fraction=wake_fraction,
+            thrust_deduction=thrust_deduction,
+            initial_rpm=self.nominal_rpm or 100.0,
+        )
+        if rpm_solution is None:
+            return None
+
+        return self.power_from_rpm(rpm_solution, speed, wake_fraction)
 
     # === RPM-Driven Mode (Future) ===
 
