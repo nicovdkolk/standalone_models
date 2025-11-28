@@ -1,11 +1,4 @@
-"""
-Main propeller class supporting multiple models.
-
-This module implements a unified Propeller class that can use different
-propeller models (simple thrust, Wageningen B-series, custom curves)
-
-and supports multiple optimization modes (speed-driven, RPM-driven, power-driven).
-"""
+"""Propeller models with thrust, Wageningen B, and custom curve support."""
 
 from typing import Optional, Union, Dict, Any, Callable
 import numpy as np
@@ -15,31 +8,14 @@ from scipy.interpolate import interp1d
 
 # Simple LoadCase class for compatibility
 class LoadCase:
-    """Simple load case class for propeller calculations."""
+    """Container for loadcase speed."""
     def __init__(self, speed: float):
         # Store ship speed for reuse in solver routines.
         self.speed = speed
 
 
 class Propeller:
-    """
-    Propeller models for converting shaft power (kW, Torque, RPM) to propeller delivered thrust
-    (kN) and vice versa.
-
-    Handles backwards and forwards-facing propeller models:
-    Backwards: Propeller delivered thrust (kN) >> Shaft power (kW, Torque, RPM)
-    Forward: Shaft power (kW, Torque, RPM) >> Propeller delivered thrust
-    
-    Supports three propeller models:
-    - Thrust model (current)
-    - Wageningen B-series polynomial model
-    - Custom KT/KQ curves
-
-    Supports three solving modes:
-    - Speed mode (current, legacy): Given speed → find thrust and power
-    - Power mode (future): Given power → find RPM and thrust at speed
-    - RPM mode (future): Given RPM → find thrust and power at speed
-    """
+    """Power/thrust conversions for thrust, Wageningen B, or custom KT/KQ models."""
 
     def __init__(
         self,
@@ -127,7 +103,7 @@ class Propeller:
         )
 
     def _init_custom_curves(self):
-        """Initialize custom curves model."""
+        """Initialize custom KT/KQ curves."""
         from .custom_curves import CustomCurves
 
         if self.kt_curve is None or self.kq_curve is None:
@@ -152,24 +128,7 @@ class Propeller:
     # === Speed-Driven Mode (Current) ===
 
     def eta_D_at_speed(self, loadcase: LoadCase) -> float:
-        """
-        Get eta_D (delivered power efficiency) at a given speed.
-        
-        Supports:
-        - float: constant efficiency
-        - dict: interpolated efficiency based on speed
-        - callable: function that takes speed and returns efficiency
-        
-        Parameters:
-        -----------
-        speed : float
-            Ship speed [m/s]
-            
-        Returns:
-        --------
-        float
-            Delivered power efficiency [-]
-        """
+        """Resolve delivered power efficiency (scalar, lookup, or callable)."""
         # Evaluate delivered power efficiency via scalar, lookup table, or callable.
         if isinstance(self.eta_delivered_power, (int, float)):
             return float(self.eta_delivered_power)
@@ -181,58 +140,28 @@ class Propeller:
     # === Helpers ===
 
     def _evaluate_mapping(self, value: Union[float, Callable[[LoadCase], float]], loadcase: LoadCase) -> float:
-        """Evaluate scalar or callable mapping against a loadcase."""
+        """Evaluate a scalar or callable for the given loadcase."""
         # Call provided mapping when necessary to resolve speed-dependent inputs.
         if callable(value):
             return float(value(loadcase))
         return float(value)
 
     def _wake_fraction_at_loadcase(self, loadcase: LoadCase) -> float:
-        """Return wake fraction for the loadcase, defaulting to 0.0 if missing."""
+        """Wake fraction for the loadcase, defaulting to 0.0."""
         # Use default wake fraction when none is supplied.
         if self.wake_fraction is None:
             return 0.0
         return self._evaluate_mapping(self.wake_fraction, loadcase)
 
     def _thrust_deduction_at_loadcase(self, loadcase: LoadCase) -> float:
-        """Return thrust deduction for the loadcase, defaulting to 0.0 if missing."""
+        """Thrust deduction for the loadcase, defaulting to 0.0."""
         # Use default thrust deduction when none is supplied.
         if self.thrust_deduction is None:
             return 0.0
         return self._evaluate_mapping(self.thrust_deduction, loadcase)
 
     def hull_efficiency_at_loadcase(self, loadcase: LoadCase) -> float:
-        """
-        Calculate hull efficiency η_H from wake fraction and thrust deduction.
-        
-        η_H = (1 - t) / (1 - w)
-        
-        where:
-        - t = thrust deduction factor
-        - w = wake fraction
-        
-        This expresses how hull–propeller interaction modifies the mapping between
-        thrust power P_T and effective power P_E. Hull efficiency accounts for:
-        - Wake fraction w: reduces inflow speed V_A = V(1-w)
-        - Thrust deduction factor t: relates gross thrust T to net resistance R = (1-t)T
-        
-        The relationship: P_E = η_H · P_T = η_H · T · V_A
-        
-        Parameters:
-        -----------
-        loadcase : LoadCase
-            Load case with ship speed [m/s] (for speed-dependent wake/thrust deduction)
-            
-        Returns:
-        --------
-        float
-            Hull efficiency η_H [-] (dimensionless, typically 0.9-1.1)
-            
-        Raises:
-        -------
-        ValueError
-            If wake_fraction >= 1.0 (invalid, would cause division by zero or negative)
-        """
+        """Compute η_H = (1 - t) / (1 - w); defaults to 1.0 when no interaction."""
         # Priority: explicit value > calculated value > default
         # If hull efficiency is explicitly set, use that (allows manual override)
         if self.hull_efficiency is not None:
@@ -260,59 +189,13 @@ class Propeller:
         return float(hull_efficiency)
 
     def effective_power(self, loadcase: LoadCase, thrust: float) -> float:
-        """
-        Calculate the effective power P_E for this loadcase.
-        
-        P_E = R · V
-        
-        where:
-        - R = total resistance (net thrust after thrust deduction, i.e., R = (1-t)T)
-        - V = ship speed through water
-        
-        Parameters:
-        -----------
-        loadcase : LoadCase
-            Load case with ship speed V [m/s]
-        thrust : float
-            Net thrust (residual force in x-direction) [kN]
-            This represents the total resistance R after accounting for thrust deduction.
-            Can be positive (forward) or zero (zero thrust). May be negative (regeneration) in the future.
-            
-        Returns:
-        --------
-        float
-            Effective power P_E [kW]. Always >= 0 (negative thrust results in 0 power).
-        """
+        """Return max(0, R·V) using the loadcase speed and net thrust."""
         # P_E = R · V, where R is net thrust (resistance) and V is ship speed
         # Translate net thrust demand into effective power while preventing negative outputs.
         return max(0, thrust * loadcase.speed)
 
     def thrust_power(self, thrust: float, speed: float, wake_fraction: float) -> float:
-        """
-        Calculate thrust power P_T from gross thrust and inflow speed.
-        
-        P_T = T · V_A
-        
-        where:
-        - T = propeller thrust (gross thrust, before thrust deduction)
-        - V_A = inflow speed to propeller disc = V(1-w)
-        - V = ship speed through water
-        - w = wake fraction
-        
-        Parameters:
-        -----------
-        thrust : float
-            Gross propeller thrust T [kN] (before thrust deduction)
-        speed : float
-            Ship speed V [m/s]
-        wake_fraction : float
-            Wake fraction w [-]
-            
-        Returns:
-        --------
-        float
-            Thrust power P_T [kW]
-        """
+        """Calculate P_T = T · V(1-w)."""
         # V_A = V(1-w) - inflow speed reduced by wake
         v_a = speed * (1 - wake_fraction)
         # P_T = T · V_A - rate at which propeller thrust does work on the flow

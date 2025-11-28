@@ -4,17 +4,7 @@ from .diesel_engine import DieselEngine
 
 
 class Powering:
-    """
-    Models power flow from engine and/or genset brake power through various transmission stages to
-    delivered shaft power and grid load kWe, for diesel-direct (DD), diesel-electric (DE), and
-    PTI/PTO (PTI/PTO) architectures. DD mode is the default.
-    
-    Handles backwards and forwards engine models:
-    Backwards: Shaft power and grid load kWe >> engine brake power and/or genset brake power
-    Forward: Engine and/or genset brake power >> Shaft power and grid load kWe
-    
-    Uses DieselEngine class for main engine and genset fuel consumption calculations.
-    """
+    """Map engine and genset power to shaft or grid loads for DD, DE, and PTI/PTO setups."""
 
     # Encapsulate drivetrain configuration and associated fuel/efficiency calculations.
 
