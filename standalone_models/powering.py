@@ -1,5 +1,6 @@
-from typing import Union, Dict
 import math
+from typing import Dict, Union
+
 from .diesel_engine import DieselEngine
 
 
@@ -49,7 +50,7 @@ class Powering:
         self.diesel_electric = diesel_electric
         self.pti_pto = pti_pto
         self.shaftlines = n_shaftlines
-        self.hotel_load = hotel_load
+        self.hotel_load = 0.0 if hotel_load is None else hotel_load
         
         # Only create main engine if me_mcr is provided (not needed in DE mode)
         if me_mcr is not None:
@@ -75,7 +76,8 @@ class Powering:
         else:
             self.gensets = []
      
-        self.eta_converters = eta_converters
+        # Provide robust defaults for efficiencies to avoid None propagation in calculations.
+        self.eta_converters = eta_converters if eta_converters is not None else 0.98
         self.eta_gearbox = eta_gearbox if eta_gearbox is not None else 1
         self.eta_shaft = eta_shaft if eta_shaft is not None else 0.99
         # For legacy compatibility: prefer eta_Tr, fallback to eta_shaft * eta_gearbox
@@ -114,6 +116,18 @@ class Powering:
 
         if not self.diesel_electric and self.me_mcr is None:
             raise ValueError("DD mode requires main_engine MCR")
+
+        # Guard against non-physical efficiencies that would distort power flow calculations.
+        for name, value in [
+            ("eta_converters", self.eta_converters),
+            ("eta_gearbox", self.eta_gearbox),
+            ("eta_shaft", self.eta_shaft),
+            ("eta_generator", self.eta_generator),
+            ("eta_pti_pto", self.eta_pti_pto),
+            ("eta_electric_motor", self.eta_electric_motor),
+        ]:
+            if not 0 < value <= 1:
+                raise ValueError(f"{name} must be within (0, 1]; received {value}")
 
 
     def shaft_power_from_delivered_power(self, delivered_power: float) -> float:
@@ -398,6 +412,13 @@ class Powering:
         # Use installed gensets, overflow uses last genset's characteristics
         installed_count = min(n_gensets_active, len(self.gensets))
         overflow_count = max(0, n_gensets_active - len(self.gensets))
-        
-        return (sum(self.gensets[i].chemical_energy_rate(aux_power_per_genset, unit=unit) for i in range(installed_count)) +
-                self.gensets[-1].chemical_energy_rate(aux_power_per_genset, unit=unit) * overflow_count)
+
+        installed_energy = sum(
+            self.gensets[i].chemical_energy_rate(aux_power_per_genset, unit=unit)
+            for i in range(installed_count)
+        )
+        overflow_energy = self.gensets[-1].chemical_energy_rate(
+            aux_power_per_genset, unit=unit
+        ) * overflow_count
+
+        return installed_energy + overflow_energy
