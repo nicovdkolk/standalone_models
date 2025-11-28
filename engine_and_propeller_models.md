@@ -89,11 +89,11 @@ V_A = V (1 - w).
 The drivetrain mechanical efficiency is
 
 \[
-\eta_M = rac{P_D}{P_B}
+\eta_Tr = rac{P_D}{P_B}
        = \eta_{	ext{gearbox}} \, \eta_{	ext{shaft}},
 \]
 
-and in the implementation this is referred to as **transmission efficiency** \(\eta_{	ext{Tr}}\), with \(\eta_M = \eta_{	ext{Tr}}\).
+and in the implementation this is referred to as **transmission efficiency** \(\eta_{	ext{Tr}}\), with \(\eta_Tr = \eta_{	ext{Tr}}\).
 
 ---
 
@@ -121,7 +121,7 @@ At each stage:
 2. **Mechanical transmission**
    - **Gearbox stage**: \(P_B 	o P_S = \eta_{	ext{gearbox}} P_B\).  
    - **Shaft stage**: \(P_S 	o P_D = \eta_{	ext{shaft}} P_S\).  
-   - Combined efficiency \(\eta_M = \eta_{	ext{gearbox}} \eta_{	ext{shaft}}\).
+   - Combined efficiency \(\eta_Tr = \eta_{	ext{gearbox}} \eta_{	ext{shaft}}\).
 
 3. **Propeller hydrodynamics**
    - Converts delivered torque and rotation to thrust \(T\) and thrust power \(P_T = T V_A\).
@@ -163,10 +163,10 @@ We use the standard propulsive coefficients:
 3. **Relative rotative efficiency \(\eta_R\)**  
    Corrects for the difference between behind-hull and open-water performance. Typically close to unity and often treated as a constant.
 
-4. **Mechanical / transmission efficiency \(\eta_M = \eta_{	ext{Tr}}\)**  
+4. **Mechanical / transmission efficiency**  
    As defined above:
    \[
-   \eta_M = \eta_{	ext{Tr}} = rac{P_D}{P_B}
+   \eta_Tr = \eta_{	ext{Tr}} = rac{P_D}{P_B}
           = \eta_{	ext{gearbox}} \, \eta_{	ext{shaft}}.
    \]
 
@@ -174,7 +174,7 @@ The overall quasi-propulsive efficiency (or overall propulsive coefficient) is
 
 \[
 \eta_D = rac{P_E}{P_B}
-       = \eta_M \, \eta_0 \, \eta_R \, \eta_H.
+       = \eta_Tr \, \eta_0 \, \eta_R \, \eta_H.
 \]
 
 ---
@@ -205,7 +205,7 @@ At a high level:
 
 ### 3.2 Mechanical transmission (gearbox and shaft line)
 
-The **mechanical transmission** converts brake power \(P_B\) to delivered power \(P_D\) with efficiency \(\eta_M\).
+The **mechanical transmission** converts brake power \(P_B\) to delivered power \(P_D\) with efficiency \(\eta_Tr\).
 
 - **Gearbox**
   - Changes speed and torque according to gear ratio \(i\) (currently \(i = 1\)).
@@ -219,10 +219,10 @@ Combined:
 
 \[
 P_S = \eta_{	ext{gearbox}} P_B, \quad
-P_D = \eta_{	ext{shaft}} P_S = \eta_M P_B.
+P_D = \eta_{	ext{shaft}} P_S = \eta_Tr P_B.
 \]
 
-The implementation treats \(\eta_M\) as a configurable **transmission efficiency** parameter.
+The implementation treats \(\eta_Tr\) as a configurable **transmission efficiency** parameter.
 
 ### 3.3 Propeller hydrodynamics
 
@@ -555,7 +555,7 @@ def solve_forward_operating_point(engine_ctrl, env, hull_model,
         hull_model: interface to R(V, env)
         propeller_model: interface to propeller_forward
         interaction_model: interface providing w(V, ...) and t(V, ...)
-        transmission: mechanical transmission parameters (eta_M, gear ratio)
+        transmission: mechanical transmission parameters (eta_Tr, gear ratio)
         constraints: system-level constraints (e.g. bounds on speed, rpm)
 
     Returns:
@@ -588,7 +588,7 @@ def solve_backward_operating_point(target_speed, env, hull_model,
         propeller_model: interfaces to propeller_backward/forward as needed
         engine_model: interfaces to engine_backward/forward as needed
         interaction_model: interface providing w(V, ...) and t(V, ...)
-        transmission: mechanical transmission parameters (eta_M, gear ratio)
+        transmission: mechanical transmission parameters (eta_Tr, gear ratio)
         constraints: system-level constraints (e.g. engine load limits)
 
     Returns:
@@ -617,9 +617,9 @@ A steady operating point satisfies:
 
 - **Torque equilibrium (rotational)**
   \[
-  Q_{	ext{eng}} = rac{Q_{	ext{prop}}}{\eta_M \, i},
+  Q_{	ext{eng}} = rac{Q_{	ext{prop}}}{\eta_Tr \, i},
   \]
-  with gear ratio \(i\) (currently \(i = 1\)) and \(\eta_M = \eta_{	ext{Tr}}\).
+  with gear ratio \(i\) (currently \(i = 1\)) and \(\eta_Tr = \eta_{	ext{Tr}}\).
 
 - **Kinematic relations**
   \[
@@ -666,7 +666,7 @@ Given a target speed \(V\), what engine operating point is required?
    V_A = V (1 - w(V)).
    \]
 3. Backward propeller model → propeller speed \(n\), torque \(Q_{	ext{prop}}\), delivered power \(P_D\).  
-4. Transmission → required brake power \(P_B = P_D / \eta_M\).  
+4. Transmission → required brake power \(P_B = P_D / \eta_Tr\).  
 5. Backward engine model → engine speed \(N\), control setting, achievable \(P_B\), SFOC, and fuel flow.
 
 Outputs: engine rpm and load, fuel consumption, feasibility flags.
@@ -905,7 +905,7 @@ All of these still obey the same underlying principles: power flows from fuel to
 
 This document provides a **reference model** for power flow from engine setting to effective power, together with high-level software interfaces:
 
-- It defines the main power levels \(P_B, P_S, P_D, P_T, P_E\) and how they are connected through mechanical efficiency \(\eta_M\), open-water efficiency \(\eta_0\), relative rotative efficiency \(\eta_R\), and hull efficiency \(\eta_H\).
+- It defines the main power levels \(P_B, P_S, P_D, P_T, P_E\) and how they are connected through mechanical efficiency \(\eta_Tr\), open-water efficiency \(\eta_0\), relative rotative efficiency \(\eta_R\), and hull efficiency \(\eta_H\).
 
 - It describes physical sub-models for engine, transmission, propeller, hull resistance, and hull–propeller interaction, including wake fraction \(w\) and thrust deduction \(t\).
 
@@ -914,5 +914,3 @@ This document provides a **reference model** for power flow from engine setting 
 - It outlines system-level coupling via `solve_forward_operating_point` and `solve_backward_operating_point`, which enforce force and torque balance to determine quasi-static operating points.
 
 - It integrates **fuel modelling** (LHV, density, SFOC) and **dual-fuel/pilot fuel** behaviour at the engine boundary, without changing the mechanical and hydrodynamic structure of the model.
-
-The detailed numerical algorithms and data structures are implemented elsewhere; this document is intended as a stable, shared reference for both modelling and software design discussions.
