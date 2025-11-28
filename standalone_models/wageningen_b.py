@@ -24,7 +24,8 @@ class WageningenB:
         Number of blades Z [-]
     """
 
-    # KT polynomial coefficients (39 coefficients)
+    # KT polynomial coefficients (39 coefficients) reproduced from Table 1
+    # (Bernitsas et al., Rn = 2 × 10^6).
     # Format: C_KT[i] corresponds to J^s[i] * (P/D)^t[i] * (Ae/A0)^u[i] * Z^v[i]
     _KT_COEFFICIENTS = np.array(
         [
@@ -116,7 +117,8 @@ class WageningenB:
         dtype=int,
     )
 
-    # KQ polynomial coefficients (47 coefficients)
+    # KQ polynomial coefficients (47 coefficients) reproduced from Table 1
+    # (Bernitsas et al., Rn = 2 × 10^6).
     _KQ_COEFFICIENTS = np.array(
         [
             0.00379368,
@@ -247,7 +249,56 @@ class WageningenB:
         self._ae_power = blade_area_ratio
         self._z_power = number_of_blades
 
-    def calculate_kt(self, J: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+    @staticmethod
+    def _log_reynolds_term(reynolds_number: float) -> float:
+        """Return log10(Re) - log10(2) for Reynolds corrections."""
+
+        return np.log10(reynolds_number) - 0.301
+
+    def _delta_kt(self, J: np.ndarray, reynolds_number: float) -> np.ndarray:
+        """Compute ΔKT correction for Reynolds numbers above 2×10^6."""
+
+        log_r = self._log_reynolds_term(reynolds_number)
+
+        return (
+            0.000353485
+            - 0.0033758 * log_r * np.power(J, 2)
+            + 0.00112016 * np.power(self._pd_power, 2)
+            + 0.00255833 * self._ae_power
+            - 0.0027623 * self._z_power
+            + 0.000061636 * np.power(log_r, 2) * np.power(self._pd_power, 2)
+            + 0.000148383 * log_r * np.power(self._pd_power, 2)
+            + 0.000364374 * np.power(log_r, 2) * self._ae_power
+            + 0.0000749837 * log_r * self._ae_power
+            + 0.000422515 * np.power(log_r, 2) * self._z_power
+            + 0.000100988 * log_r * self._z_power
+        )
+
+    def _delta_kq(self, reynolds_number: float) -> float:
+        """Compute ΔKQ correction for Reynolds numbers above 2×10^6."""
+
+        log_r = self._log_reynolds_term(reynolds_number)
+
+        return (
+            -0.0005914124
+            + 0.00696898 * self._pd_power
+            - 0.0008845 * np.power(self._pd_power, 2)
+            - 0.00015027 * np.power(self._pd_power, 6)
+            - 0.0005593 * log_r
+            + 0.00011727 * np.power(log_r, 2)
+            + 0.000594341 * np.power(log_r, 3)
+            - 0.0000220915 * np.power(log_r, 2) * np.power(self._pd_power, 2)
+            + 0.0000220915 * np.power(log_r, 4) * np.power(self._pd_power, 2)
+            + 0.00000220915 * np.power(log_r, 3) * np.power(self._pd_power, 3)
+            - 0.000220915 * np.power(log_r, 2) * self._ae_power
+            + 0.0000220915 * np.power(log_r, 3) * np.power(self._ae_power, 2)
+        )
+
+    def calculate_kt(
+        self,
+        J: Union[float, np.ndarray],
+        reynolds_number: Union[None, float] = None,
+    ) -> Union[float, np.ndarray]:
         """
         Calculate thrust coefficient KT at advance coefficient(s) J.
 
@@ -257,6 +308,9 @@ class WageningenB:
         -----------
         J : float or np.ndarray
             Advance coefficient(s) [-]
+        reynolds_number : float, optional
+            Reynolds number. If provided and greater than 2×10^6, a ΔKT correction
+            from Table 2 is added.
 
         Returns:
         --------
@@ -274,9 +328,16 @@ class WageningenB:
                        np.power(self._ae_power, u) *
                        np.power(self._z_power, v))
 
+        if reynolds_number is not None and reynolds_number > 2_000_000:
+            kt += self._delta_kt(J, reynolds_number)
+
         return float(kt) if J.ndim == 0 else kt
 
-    def calculate_kq(self, J: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+    def calculate_kq(
+        self,
+        J: Union[float, np.ndarray],
+        reynolds_number: Union[None, float] = None,
+    ) -> Union[float, np.ndarray]:
         """
         Calculate torque coefficient KQ at advance coefficient(s) J.
 
@@ -286,6 +347,9 @@ class WageningenB:
         -----------
         J : float or np.ndarray
             Advance coefficient(s) [-]
+        reynolds_number : float, optional
+            Reynolds number. If provided and greater than 2×10^6, a ΔKQ correction
+            from Table 2 is added.
 
         Returns:
         --------
@@ -303,9 +367,16 @@ class WageningenB:
                        np.power(self._ae_power, u) *
                        np.power(self._z_power, v))
 
+        if reynolds_number is not None and reynolds_number > 2_000_000:
+            kq += self._delta_kq(reynolds_number)
+
         return float(kq) if J.ndim == 0 else kq
 
-    def calculate_efficiency(self, J: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+    def calculate_efficiency(
+        self,
+        J: Union[float, np.ndarray],
+        reynolds_number: Union[None, float] = None,
+    ) -> Union[float, np.ndarray]:
         """
         Calculate open water efficiency η₀.
 
@@ -315,6 +386,9 @@ class WageningenB:
         -----------
         J : float or np.ndarray
             Advance coefficient(s) [-]
+        reynolds_number : float, optional
+            Reynolds number. If provided and greater than 2×10^6, ΔKT and ΔKQ
+            corrections from Table 2 are applied.
 
         Returns:
         --------
@@ -322,8 +396,8 @@ class WageningenB:
             Open water efficiency η₀ [-]
         """
         J = np.asarray(J)
-        kt = self.calculate_kt(J)
-        kq = self.calculate_kq(J)
+        kt = self.calculate_kt(J, reynolds_number=reynolds_number)
+        kq = self.calculate_kq(J, reynolds_number=reynolds_number)
 
         # Avoid division by zero
         eta_0 = np.zeros_like(J, dtype=float)
