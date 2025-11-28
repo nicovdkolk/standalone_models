@@ -1,10 +1,11 @@
-from typing import Union, Dict
+from typing import Dict, Union
+
 from scipy.interpolate import interp1d
 
 
 # Fuel type definitions with Lower Heating Value (LHV) and density
 # Based on typical marine fuel properties
-FUEL_PROPERTIES = {
+FUEL_PROPERTIES: Dict[str, Dict[str, float]] = {
     "MGO": {
         "lhv": 42.7,  # MJ/kg (representative value from 42-43.5 range)
         "density": 850.0  # kg/m³ (representative value from 820-890 range)
@@ -256,4 +257,6 @@ class DieselEngine:
             True if load is valid
         """
         # Confirm requested brake power sits within typical operational band.
+        if self.mcr is None:
+            raise ValueError("MCR must be set to validate engine load")
         return 0.15 * self.mcr <= brake_power <= self.mcr
