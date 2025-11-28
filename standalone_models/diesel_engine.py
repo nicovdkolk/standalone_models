@@ -29,31 +29,7 @@ FUEL_PROPERTIES = {
 
 
 class DieselEngine:
-    """
-    Diesel engine model for fuel consumption calculation at a given load percentage.
-    MCR (maximum continuous rating) is mandatory.
-    CSR (continuous service rating) is optional.
-    CSR defaults to:
-    - 91% of MCR (high speed, <2000 kW)
-    - 85% of MCR (medium speed, 2000-18000 kW)
-    - 65% of MCR (low speed, >18000 kW)
-
-    SFOC (specific fuel oil consumption) is optional, may be a dict or a float:
-    - Dict with keys:
-        - "%MCR": List of load percentages [0-1.0]
-        - "SFOC": List of SFOC values [kg/kWh]
-    - Float value for SFOC [kg/kWh] at CSR
-
-    If a dict with keys "%MCR" and "SFOC" is provided, it is used as the SFOC values and curve.
-    If a float value for SFOC is provided, it is applied with default SFOC curves for high speed,
-    medium speed and low speed engines.
-
-    If no SFOC is provided, default SFOC values and curves are used for high speed, medium speed
-    and low speed engines.
-    - High speed (<2000 kW): 0.190 kg/kWh at 91% MCR
-    - Medium speed (2000-18000 kW): 0.180 kg/kWh at 85% MCR
-    - Low speed (>18000 kW): 0.160 kg/kWh at 65% MCR
-    """
+    """Fuel consumption and efficiency model with sensible defaults per engine class."""
 
     # Configure engine load limits and default SFOC/CSR values by speed class.
 
@@ -155,37 +131,10 @@ class DieselEngine:
 
     def engine_efficiency(self, percentage_mcr: float = None, brake_power: float = None) -> float:
         """
-        Calculate engine efficiency η_eng at given load.
-        
-        η_eng = 3.6 / (SFOC · H_L) = 3600 / (SFOC · H_L · 1000)
-        
-        where:
-        - SFOC is in kg/kWh
-        - H_L (LHV) is in MJ/kg
-        - The factor accounts for unit conversion: 1 kWh = 3.6 MJ, 1 MJ/s = 1000 kW
-        - Result is dimensionless (0-1)
-        
-        Derivation:
-        - P_B [kW] = η_eng · ṁ_f [kg/s] · H_L [MJ/kg] · 1000 [kW/(MJ/s)]
-        - SFOC = ṁ_f [kg/h] / P_B [kW] = (ṁ_f [kg/s] · 3600) / P_B [kW]
-        - Rearranging: ṁ_f = SFOC · P_B / 3600
-        - Substituting: P_B = η_eng · (SFOC · P_B / 3600) · H_L · 1000
-        - Simplifying: η_eng = 3600 / (SFOC · H_L · 1000) = 3.6 / (SFOC · H_L)
-        
-        Either percentage_mcr or brake_power must be provided.
-        If brake_power is provided, percentage_mcr is calculated from it.
-        
-        Parameters:
-        -----------
-        percentage_mcr : float, optional
-            Load as percentage of MCR [0-1.0]
-        brake_power : float, optional
-            Brake power [kW] (used to calculate percentage_mcr if provided)
-            
-        Returns:
-        --------
-        float
-            Engine efficiency η_eng [dimensionless, 0-1]
+        Calculate thermal efficiency η_eng from either %MCR or brake power.
+
+        η_eng = 3.6 / (SFOC · H_L), where SFOC is in kg/kWh and H_L in MJ/kg.
+        Provide either percentage_mcr or brake_power; brake_power is converted to %MCR when set.
         """
         if percentage_mcr is None:
             if brake_power is None:
