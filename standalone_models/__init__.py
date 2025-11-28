@@ -22,7 +22,7 @@ class Physics:
     This provides the same interface as Shipyard's Physics class.
     """
     g: float = 9.81  # Gravity [m/s²]
-    rho_w: float = 1025.0  # Water density [kg/m³]
+    rho_w: float = 1.025  # Water density [t/m³]
     rho_air: float = 1.225  # Air density [kg/m³]
     nu_w: float = 1.05e-6  # Water kinematic viscosity [m²/s]
     nu_air: float = 1.5e-5  # Air kinematic viscosity [m²/s]

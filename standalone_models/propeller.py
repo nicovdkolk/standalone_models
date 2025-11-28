@@ -201,23 +201,145 @@ class Propeller:
             return 0.0
         return self._evaluate_mapping(self.thrust_deduction, loadcase)
 
+    def hull_efficiency_at_loadcase(self, loadcase: LoadCase) -> float:
+        """
+        Calculate hull efficiency η_H from wake fraction and thrust deduction.
+        
+        η_H = (1 - t) / (1 - w)
+        
+        where:
+        - t = thrust deduction factor
+        - w = wake fraction
+        
+        This expresses how hull–propeller interaction modifies the mapping between
+        thrust power P_T and effective power P_E. Hull efficiency accounts for:
+        - Wake fraction w: reduces inflow speed V_A = V(1-w)
+        - Thrust deduction factor t: relates gross thrust T to net resistance R = (1-t)T
+        
+        The relationship: P_E = η_H · P_T = η_H · T · V_A
+        
+        Parameters:
+        -----------
+        loadcase : LoadCase
+            Load case with ship speed [m/s] (for speed-dependent wake/thrust deduction)
+            
+        Returns:
+        --------
+        float
+            Hull efficiency η_H [-] (dimensionless, typically 0.9-1.1)
+            
+        Raises:
+        -------
+        ValueError
+            If wake_fraction >= 1.0 (invalid, would cause division by zero or negative)
+        """
+        # Priority: explicit value > calculated value > default
+        # If hull efficiency is explicitly set, use that (allows manual override)
+        if self.hull_efficiency is not None:
+            return float(self.hull_efficiency)
+        
+        # Calculate from wake fraction and thrust deduction
+        wake_fraction = self._wake_fraction_at_loadcase(loadcase)
+        thrust_deduction = self._thrust_deduction_at_loadcase(loadcase)
+        
+        # Handle default case: if both are None/zero, no interaction, efficiency is 1.0
+        if self.wake_fraction is None and self.thrust_deduction is None:
+            return 1.0
+        
+        # Validate wake fraction (must be < 1.0 to avoid division by zero or negative values)
+        if wake_fraction >= 1.0:
+            raise ValueError(
+                f"Invalid wake_fraction value: {wake_fraction}. "
+                "Wake fraction must be < 1.0 to calculate hull efficiency. "
+                "Values >= 1.0 would result in non-positive inflow speed V_A."
+            )
+        
+        # Calculate hull efficiency: η_H = (1 - t) / (1 - w)
+        hull_efficiency = (1 - thrust_deduction) / (1 - wake_fraction)
+        
+        return float(hull_efficiency)
 
     def effective_power(self, loadcase: LoadCase, thrust: float) -> float:
-        """Calculate the effective power for this loadcase.
-        thrust is actually the residual in x, which can be +/- or zero
-        effective power can only be greater or equal to zero
         """
+        Calculate the effective power P_E for this loadcase.
+        
+        P_E = R · V
+        
+        where:
+        - R = total resistance (net thrust after thrust deduction, i.e., R = (1-t)T)
+        - V = ship speed through water
+        
+        Parameters:
+        -----------
+        loadcase : LoadCase
+            Load case with ship speed V [m/s]
+        thrust : float
+            Net thrust (residual force in x-direction) [kN]
+            This represents the total resistance R after accounting for thrust deduction.
+            Can be positive (forward) or zero (zero thrust). May be negative (regeneration) in the future.
+            
+        Returns:
+        --------
+        float
+            Effective power P_E [kW]. Always >= 0 (negative thrust results in 0 power).
+        """
+        # P_E = R · V, where R is net thrust (resistance) and V is ship speed
         # Translate net thrust demand into effective power while preventing negative outputs.
         return max(0, thrust * loadcase.speed)
 
+    def thrust_power(self, thrust: float, speed: float, wake_fraction: float) -> float:
+        """
+        Calculate thrust power P_T from gross thrust and inflow speed.
+        
+        P_T = T · V_A
+        
+        where:
+        - T = propeller thrust (gross thrust, before thrust deduction)
+        - V_A = inflow speed to propeller disc = V(1-w)
+        - V = ship speed through water
+        - w = wake fraction
+        
+        Parameters:
+        -----------
+        thrust : float
+            Gross propeller thrust T [kN] (before thrust deduction)
+        speed : float
+            Ship speed V [m/s]
+        wake_fraction : float
+            Wake fraction w [-]
+            
+        Returns:
+        --------
+        float
+            Thrust power P_T [kW]
+        """
+        # V_A = V(1-w) - inflow speed reduced by wake
+        v_a = speed * (1 - wake_fraction)
+        # P_T = T · V_A - rate at which propeller thrust does work on the flow
+        return thrust * v_a
+
     def delivered_power(self, loadcase: LoadCase, effective_power: float) -> float:
         """
-        Calculate the delivered power for this loadcase.
+        Calculate the delivered power P_D for this loadcase.
         
-        If eta_delivered_power is set, uses simple efficiency model.
-        If eta_delivered_power is None but model exists, uses model-based calculation.
+        P_D = P_E / η_D (where η_D is quasi-propulsive coefficient)
+        
+        Delivered power P_D is the power delivered to the propeller at the propeller plane,
+        after mechanical losses in transmission (P_D = η_Tr · P_B).
+        
+        Parameters:
+        -----------
+        loadcase : LoadCase
+            Load case with ship speed [m/s]
+        effective_power : float
+            Effective power P_E [kW]
+            
+        Returns:
+        --------
+        float
+            Delivered power P_D [kW]
         """
-        # Simple efficiency model
+        # Simple efficiency model: P_D = P_E / η_D
         if self.eta_delivered_power is not None:
             return effective_power / self.eta_D_at_speed(loadcase)
         
@@ -232,11 +354,11 @@ class Propeller:
         net_thrust = effective_power / loadcase.speed
         
         # Use delivered_power_from_thrust to calculate delivered power using the model
-        delivered_power_w = self.delivered_power_from_thrust(net_thrust, loadcase.speed)
-        if delivered_power_w is None:
+        delivered_power_kw = self.delivered_power_from_thrust(net_thrust, loadcase.speed)
+        if delivered_power_kw is None:
             raise ValueError("eta_delivered_power is not set and model calculation failed")
 
-        return delivered_power_w
+        return delivered_power_kw
 
 
     def thrust_from_power(self, Pe: float, speed: float,
@@ -256,12 +378,15 @@ class Propeller:
 
         # 1) Simple thrust model
         if self.eta_delivered_power is not None:
+            # V_A = V(1-w) - inflow speed reduced by wake
             v_a = speed * (1 - wake_fraction)
             if v_a <= 0:
                 return 0.0
 
             eta_D_value = self.eta_D_at_speed(loadcase)
+            # From P_D and η_D, calculate gross thrust: T_gross = P_D · η_D / V_A
             T_gross = Pe * eta_D_value / v_a
+            # Return net thrust: R = (1-t)T (after thrust deduction)
             return T_gross * (1 - thrust_deduction)
 
         # 2/3) Advanced models: use RPM inverse to maintain consistency
@@ -283,12 +408,15 @@ class Propeller:
 
         # 1) Simple thrust model using eta_D
         if self.eta_delivered_power is not None:
+            # V_A = V(1-w) - inflow speed reduced by wake
             v_a = speed * (1 - wake_fraction)
             if v_a <= 0:
                 return 0.0
 
             eta_D_value = self.eta_D_at_speed(loadcase)
+            # Convert net thrust (R) to gross thrust: T = R/(1-t)
             gross_thrust = thrust / (1 - thrust_deduction) if thrust_deduction < 1 else float('inf')
+            # P_D = P_T / η_D = (T · V_A) / η_D
             return gross_thrust * v_a / eta_D_value
 
         # 2/3) Advanced models require physics and hydrodynamic model
@@ -312,14 +440,21 @@ class Propeller:
     def advance_coefficient(self, rpm: float, speed: float,
                            wake_fraction: float) -> float:
         """
-        Calculate advance coefficient J = v_a / (n × D).
+        Calculate advance coefficient J = V_A / (n × D).
+
+        J = V_A / (nD)
+        
+        where:
+        - V_A = inflow speed = V(1-w)
+        - n = propeller rotational speed [rev/s]
+        - D = propeller diameter [m]
 
         Parameters:
         -----------
         rpm : float
             Propeller revolutions per minute [rev/min]
         speed : float
-            Ship speed [m/s]
+            Ship speed V [m/s]
         wake_fraction : float
             Wake fraction w [-]
 
@@ -330,7 +465,9 @@ class Propeller:
         """
         # Translate RPM and inflow speed into the non-dimensional advance coefficient.
         n_rps = rpm / 60  # Convert to rev/s
+        # V_A = V(1-w) - inflow speed reduced by wake
         v_a = speed * (1 - wake_fraction)
+        # J = V_A / (nD) - non-dimensional advance ratio
         return v_a / (n_rps * self.dia_prop) if n_rps > 0 else 0.0
 
     def thrust_from_rpm(self, rpm: float, speed: float,
@@ -358,7 +495,7 @@ class Propeller:
         Returns:
         --------
         Optional[float]
-            Thrust [N], or None if eta_delivered_power is set or no KT/KQ model available
+            Thrust [kN], or None if eta_delivered_power is set or no KT/KQ model available
         """
         if self.eta_delivered_power is not None:
             return None  # RPM calculations not available when using eta_D efficiency model
@@ -395,7 +532,7 @@ class Propeller:
         Returns:
         --------
         Optional[float]
-            Torque [N⋅m], or None if eta_delivered_power is set or no KT/KQ model available
+            Torque [kN⋅m], or None if eta_delivered_power is set or no KT/KQ model available
         """
         if self.eta_delivered_power is not None:
             return None  # RPM calculations not available when using eta_D efficiency model
@@ -431,7 +568,7 @@ class Propeller:
         Returns:
         --------
         Optional[float]
-            Delivered power [W], or None if eta_delivered_power is set or no KT/KQ model available
+            Delivered power [kW], or None if eta_delivered_power is set or no KT/KQ model available
         """
         if self.eta_delivered_power is not None:
             return None  # RPM calculations not available when using eta_D efficiency model
@@ -440,6 +577,7 @@ class Propeller:
             return None
 
         n_rps = rpm / 60
+        # P_D = 2πnQ - delivered power from torque and rotational speed
         # Convert torque at the shaft into delivered mechanical power.
         return Q * 2 * np.pi * n_rps
 
@@ -460,7 +598,7 @@ class Propeller:
         Parameters:
         -----------
         thrust : float
-            Required thrust [N]
+            Required thrust [kN]
         speed : float
             Ship speed [m/s]
         wake_fraction : float
@@ -511,7 +649,7 @@ class Propeller:
         Parameters:
         -----------
         power : float
-            Delivered power [W]
+            Delivered power [kW]
         speed : float
             Ship speed [m/s]
         wake_fraction : float

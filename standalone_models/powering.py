@@ -31,12 +31,18 @@ class Powering:
 
         me_csr: float = None,  # main engine CSR [kW], optional
         me_sfoc: Union[Dict, float, None] = None,  # main engine SFOC curve / single value, optional
+        me_fuel_type: str = "MGO",  # main engine fuel type
+        me_fuel_lhv: float = None,  # main engine fuel LHV [MJ/kg], optional
+        me_fuel_density: float = None,  # main engine fuel density [kg/m³], optional
 
         n_gensets: int = 0,  # number of gensets, mandatory for DE mode
         genset_mcr: float = None,  # genset MCR [kW], mandatory for DE mode
 
         genset_csr: float = None,  # genset CSR [kW], optional
         genset_sfoc: Union[Dict, float, None] = None,  # genset SFOC curve / single value, optional
+        genset_fuel_type: str = "MGO",  # genset fuel type
+        genset_fuel_lhv: float = None,  # genset fuel LHV [MJ/kg], optional
+        genset_fuel_density: float = None,  # genset fuel density [kg/m³], optional
 
         eta_gearbox: float = None,  # Gearbox efficiency
         eta_shaft: float = None,   # Shaft efficiency
@@ -57,13 +63,25 @@ class Powering:
         
         # Only create main engine if me_mcr is provided (not needed in DE mode)
         if me_mcr is not None:
-            self.main_engine = DieselEngine(me_sfoc, me_mcr, me_csr)
+            self.main_engine = DieselEngine(
+                me_sfoc, me_mcr, me_csr,
+                fuel_type=me_fuel_type,
+                fuel_lhv=me_fuel_lhv,
+                fuel_density=me_fuel_density
+            )
         else:
             self.main_engine = None
         
         # Only create gensets if genset_mcr is provided
         if genset_mcr is not None and n_gensets > 0:
-            self.gensets = [DieselEngine(genset_sfoc, genset_mcr, genset_csr) for _ in range(n_gensets)]
+            self.gensets = [
+                DieselEngine(
+                    genset_sfoc, genset_mcr, genset_csr,
+                    fuel_type=genset_fuel_type,
+                    fuel_lhv=genset_fuel_lhv,
+                    fuel_density=genset_fuel_density
+                ) for _ in range(n_gensets)
+            ]
         else:
             self.gensets = []
      
@@ -109,7 +127,23 @@ class Powering:
 
 
     def shaft_power_from_delivered_power(self, delivered_power: float) -> float:
+        """
+        Calculate shaft power P_S from delivered power P_D.
+        
+        P_D = η_shaft · P_S (or P_S = P_D / η_shaft)
+        
+        Parameters:
+        -----------
+        delivered_power : float
+            Delivered power P_D [kW]
+            
+        Returns:
+        --------
+        float
+            Shaft power P_S [kW]
+        """
         # Convert delivered shaft power back to mechanical shaft requirement.
+        # P_S = P_D / η_shaft
         return delivered_power / self.eta_shaft
 
 
@@ -194,11 +228,11 @@ class Powering:
 
 
     def n_gensets_active(self, grid_load: float) -> int:
-        """number of gensets active, limited to the total number of gensets"""
+        """number of gensets active"""
         if len(self.gensets) == 0:
             return 0
-        # Round up required genset count and cap at installed quantity.
-        return int(min(math.ceil(grid_load / self.eta_generator / self.gensets[0].csr), self.n_gensets))
+        # Round up required genset count.
+        return int(math.ceil(grid_load / self.eta_generator / self.gensets[0].csr))
 
 
     def aux_power_per_genset(self, grid_load: float, n_gensets_active: int) -> float:
@@ -211,12 +245,169 @@ class Powering:
         """Calculate genset fuel consumption in kg/h.
         aux_power_per_genset is the auxiliary power per genset kWm.
         n_gensets_active is the number of gensets active.
+        Handles overflow capacity beyond installed gensets by using the last genset's characteristics.
         """
-        # Sum fuel burn from each active genset at the shared auxiliary load.
-        return sum(self.gensets[i].fuel_consumption(aux_power_per_genset) for i in range(n_gensets_active))
+        if len(self.gensets) == 0 or n_gensets_active == 0:
+            return 0.0
+        
+        # Use installed gensets, overflow uses last genset's characteristics
+        installed_count = min(n_gensets_active, len(self.gensets))
+        overflow_count = max(0, n_gensets_active - len(self.gensets))
+        
+        return (sum(self.gensets[i].fuel_consumption(aux_power_per_genset) for i in range(installed_count)) +
+                self.gensets[-1].fuel_consumption(aux_power_per_genset) * overflow_count)
 
 
     def total_fc(self, main_engine_fc: float, genset_fc: float) -> float:
         """Calculate total fuel consumption in kg/h"""
         # Combine main engine and genset fuel consumption into fleet total.
         return main_engine_fc + genset_fc
+
+    def main_engine_fc_volumetric(self, power_brake: float) -> float:
+        """
+        Calculate main engine volumetric fuel consumption.
+        
+        Parameters:
+        -----------
+        power_brake : float
+            Main engine brake power [kWm]
+            
+        Returns:
+        --------
+        float
+            Main engine volumetric fuel consumption [m³/h]
+        """
+        if self.main_engine is None:
+            return 0.0
+        return self.main_engine.fuel_consumption_volumetric(power_brake)
+
+    def genset_fc_volumetric(self, aux_power_per_genset: float, n_gensets_active: int) -> float:
+        """
+        Calculate genset volumetric fuel consumption.
+        
+        Parameters:
+        -----------
+        aux_power_per_genset : float
+            Auxiliary power per genset [kWm]
+        n_gensets_active : int
+            Number of active gensets
+            
+        Returns:
+        --------
+        float
+            Total genset volumetric fuel consumption [m³/h]
+        Handles overflow capacity beyond installed gensets by using the last genset's characteristics.
+        """
+        if len(self.gensets) == 0 or n_gensets_active == 0:
+            return 0.0
+        
+        # Use installed gensets, overflow uses last genset's characteristics
+        installed_count = min(n_gensets_active, len(self.gensets))
+        overflow_count = max(0, n_gensets_active - len(self.gensets))
+        
+        return (sum(self.gensets[i].fuel_consumption_volumetric(aux_power_per_genset) for i in range(installed_count)) +
+                self.gensets[-1].fuel_consumption_volumetric(aux_power_per_genset) * overflow_count)
+
+    def total_fc_volumetric(self, main_engine_fc_volumetric: float, genset_fc_volumetric: float) -> float:
+        """
+        Calculate total volumetric fuel consumption.
+        
+        Parameters:
+        -----------
+        main_engine_fc_volumetric : float
+            Main engine volumetric fuel consumption [m³/h]
+        genset_fc_volumetric : float
+            Genset volumetric fuel consumption [m³/h]
+            
+        Returns:
+        --------
+        float
+            Total volumetric fuel consumption [m³/h]
+        """
+        return main_engine_fc_volumetric + genset_fc_volumetric
+
+    def main_engine_efficiency(self, power_brake: float) -> float:
+        """
+        Calculate main engine efficiency at current load.
+        
+        Parameters:
+        -----------
+        power_brake : float
+            Main engine brake power [kWm]
+            
+        Returns:
+        --------
+        float
+            Main engine efficiency η_eng [dimensionless, 0-1]
+        """
+        if self.main_engine is None:
+            return 0.0
+        return self.main_engine.engine_efficiency(brake_power=power_brake)
+
+    def genset_efficiency(self, aux_power_per_genset: float) -> float:
+        """
+        Calculate genset efficiency at current load.
+        
+        Parameters:
+        -----------
+        aux_power_per_genset : float
+            Auxiliary power per genset [kWm]
+            
+        Returns:
+        --------
+        float
+            Genset efficiency η_eng [dimensionless, 0-1]
+            Returns efficiency of first genset (assumes all gensets are identical)
+        """
+        if len(self.gensets) == 0:
+            return 0.0
+        return self.gensets[0].engine_efficiency(brake_power=aux_power_per_genset)
+
+    def main_engine_chemical_energy_rate(self, power_brake: float, unit: str = "kW") -> float:
+        """
+        Calculate main engine chemical energy rate.
+        
+        Parameters:
+        -----------
+        power_brake : float
+            Main engine brake power [kWm]
+        unit : str, optional
+            Output unit: "kW" (default) or "MJ/s"
+            
+        Returns:
+        --------
+        float
+            Main engine chemical energy rate [kW] or [MJ/s]
+        """
+        if self.main_engine is None:
+            return 0.0
+        return self.main_engine.chemical_energy_rate(power_brake, unit=unit)
+
+    def genset_chemical_energy_rate(self, aux_power_per_genset: float, n_gensets_active: int, unit: str = "kW") -> float:
+        """
+        Calculate total genset chemical energy rate.
+        
+        Parameters:
+        -----------
+        aux_power_per_genset : float
+            Auxiliary power per genset [kWm]
+        n_gensets_active : int
+            Number of active gensets
+        unit : str, optional
+            Output unit: "kW" (default) or "MJ/s"
+            
+        Returns:
+        --------
+        float
+            Total genset chemical energy rate [kW] or [MJ/s]
+        Handles overflow capacity beyond installed gensets by using the last genset's characteristics.
+        """
+        if len(self.gensets) == 0 or n_gensets_active == 0:
+            return 0.0
+        
+        # Use installed gensets, overflow uses last genset's characteristics
+        installed_count = min(n_gensets_active, len(self.gensets))
+        overflow_count = max(0, n_gensets_active - len(self.gensets))
+        
+        return (sum(self.gensets[i].chemical_energy_rate(aux_power_per_genset, unit=unit) for i in range(installed_count)) +
+                self.gensets[-1].chemical_energy_rate(aux_power_per_genset, unit=unit) * overflow_count)

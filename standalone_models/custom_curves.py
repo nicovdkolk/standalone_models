@@ -7,6 +7,7 @@ as functions of advance coefficient J.
 
 import numpy as np
 from scipy.interpolate import interp1d
+from scipy.optimize import brentq
 from typing import List, Union, Optional
 
 
@@ -47,6 +48,10 @@ class CustomCurves:
         # Validation
         self._validate_inputs()
 
+        # Find J_max where KT crosses zero
+        self.J_min = float(self.J_values[0])
+        self.J_max = self._find_kt_zero_crossing()
+
         # Create interpolators
         self.interpolation_kind = interpolation_kind
 
@@ -80,17 +85,60 @@ class CustomCurves:
         if not np.all(np.diff(self.J_values) > 0):
             raise ValueError("J_values must be strictly monotonic increasing")
 
-        # Check for reasonable coefficient ranges
-        if np.any(self.KT_values < 0):
-            raise ValueError("KT values must be non-negative")
+        # Check for reasonable coefficient ranges (KQ must be non-negative)
         if np.any(self.KQ_values < 0):
             raise ValueError("KQ values must be non-negative")
+        # Note: KT can be negative (we'll find where it crosses zero)
+
+    def _find_kt_zero_crossing(self) -> float:
+        """
+        Find the J value where KT crosses zero in the input data.
+        
+        Uses linear interpolation between data points to find the exact
+        zero crossing. If KT never crosses zero, returns the maximum J
+        from the input data.
+        
+        This is a reference value - KT can be calculated for any J value,
+        but efficiency requires KT >= 0.
+        
+        Returns:
+        --------
+        float
+            Reference J value where KT typically crosses zero
+        """
+        # Find where KT crosses zero
+        negative_mask = self.KT_values <= 0
+        if np.any(negative_mask):
+            # Find the first negative point
+            first_negative_idx = np.where(negative_mask)[0][0]
+            if first_negative_idx > 0:
+                # Interpolate to find exact zero crossing
+                J_low = self.J_values[first_negative_idx - 1]
+                J_high = self.J_values[first_negative_idx]
+                KT_low = self.KT_values[first_negative_idx - 1]
+                KT_high = self.KT_values[first_negative_idx]
+                
+                # Linear interpolation to find zero crossing
+                if KT_high != KT_low:
+                    J_zero = J_low - KT_low * (J_high - J_low) / (KT_high - KT_low)
+                    return float(J_zero)
+                else:
+                    # KT values are equal (shouldn't happen with monotonic J)
+                    return float(J_low)
+            else:
+                # KT is negative from the start, return 0
+                return 0.0
+        else:
+            # KT never crosses zero, return maximum J from input data
+            return float(self.J_values[-1])
 
     def calculate_kt(self, J: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """
         Calculate thrust coefficient KT at given advance coefficient(s).
 
         Uses interpolation of provided data points.
+        KT can be negative outside the valid operating range. J_max is a reference value
+        where KT typically crosses zero, but interpolation is performed for all J values.
 
         Parameters:
         -----------
@@ -100,22 +148,29 @@ class CustomCurves:
         Returns:
         --------
         float or np.ndarray
-            Thrust coefficient KT [-]
+            Thrust coefficient KT [-] (may be negative outside valid operating range)
         """
-        # Interpolate KT and clamp below-zero artifacts to zero.
+        # Interpolate KT for all J values (no range clamping)
         J = np.asarray(J)
+        is_scalar = J.ndim == 0
+        if is_scalar:
+            J = np.array([J])
+        
+        # Use interpolator which handles extrapolation via fill_value
         kt = self._kt_interpolator(J)
 
-        # Ensure non-negative results
-        kt = np.maximum(kt, 0.0)
-
-        return float(kt) if J.ndim == 0 else kt
+        if is_scalar:
+            return float(kt[0]) if hasattr(kt, '__len__') else float(kt)
+        else:
+            return kt
 
     def calculate_kq(self, J: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """
         Calculate torque coefficient KQ at given advance coefficient(s).
 
         Uses interpolation of provided data points.
+        KQ can be negative outside the valid operating range. J_max is a reference value
+        where KT typically crosses zero, but interpolation is performed for all J values.
 
         Parameters:
         -----------
@@ -125,16 +180,21 @@ class CustomCurves:
         Returns:
         --------
         float or np.ndarray
-            Torque coefficient KQ [-]
+            Torque coefficient KQ [-] (may be negative outside valid operating range)
         """
-        # Interpolate KQ and clamp below-zero artifacts to zero.
+        # Interpolate KQ for all J values (no range clamping)
         J = np.asarray(J)
+        is_scalar = J.ndim == 0
+        if is_scalar:
+            J = np.array([J])
+        
+        # Use interpolator which handles extrapolation via fill_value
         kq = self._kq_interpolator(J)
 
-        # Ensure non-negative results
-        kq = np.maximum(kq, 0.0)
-
-        return float(kq) if J.ndim == 0 else kq
+        if is_scalar:
+            return float(kq[0]) if hasattr(kq, '__len__') else float(kq)
+        else:
+            return kq
 
     def calculate_efficiency(self, J: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """
@@ -142,6 +202,9 @@ class CustomCurves:
 
         η₀ = (J / 2π) × (KT / KQ)
 
+        Efficiency is only calculated where KT >= 0. KT and KQ may be negative outside
+        the valid operating range, but efficiency requires KT >= 0 for physical validity.
+
         Parameters:
         -----------
         J : float or np.ndarray
@@ -150,29 +213,30 @@ class CustomCurves:
         Returns:
         --------
         float or np.ndarray
-            Propeller efficiency η₀ [-]
+            Propeller efficiency η₀ [-] (zero where KT < 0)
         """
         # Derive KT/KQ at requested J values and combine into η₀.
         J = np.asarray(J)
         is_scalar = J.ndim == 0
+        if is_scalar:
+            J = np.array([J])
         
-        # Ensure J is at least 1D for array operations
-        J_work = J if not is_scalar else np.array([J])
+        # Calculate KT and KQ for all J values
+        kt = np.asarray(self.calculate_kt(J))
+        kq = np.asarray(self.calculate_kq(J))
         
-        # Calculate KT and KQ - ensure they're arrays
-        kt = np.asarray(self.calculate_kt(J_work))
-        kq = np.asarray(self.calculate_kq(J_work))
+        # Initialize result array with zeros
+        eta_0 = np.zeros_like(J, dtype=float)
 
-        # Calculate efficiency
-        # Only calculate efficiency where both Kt and Kq are positive
-        eta_0 = np.zeros_like(J_work, dtype=float)
-        valid_mask = (kt > 0) & (kq > 1e-6)  # Both Kt and Kq must be positive
-        eta_0[valid_mask] = (J_work[valid_mask] / (2 * np.pi)) * (kt[valid_mask] / kq[valid_mask])
+        # Only calculate efficiency where KT >= 0 (enforce strict constraint)
+        # KQ > 1e-6 to avoid division by zero
+        efficiency_mask = (kt >= 0) & (kq > 1e-6)
+        eta_0[efficiency_mask] = (J[efficiency_mask] / (2 * np.pi)) * (kt[efficiency_mask] / kq[efficiency_mask])
 
-        # Clamp efficiency to reasonable range
-        eta_0 = np.clip(eta_0, 0.0, 1.0)
-
-        return float(eta_0[0]) if is_scalar else eta_0
+        if is_scalar:
+            return float(eta_0[0])
+        else:
+            return eta_0
 
     def max_efficiency_J(self) -> float:
         """
@@ -184,9 +248,8 @@ class CustomCurves:
             Advance coefficient at maximum efficiency [-]
         """
         # Sample the provided J domain to locate the efficiency peak.
-        # Sample J range based on data
-        J_min, J_max = self.J_values[0], self.J_values[-1]
-        J_range = np.linspace(J_min, J_max, 100)
+        # Sample J range based on valid J range (up to KT zero crossing)
+        J_range = np.linspace(self.J_min, self.J_max, 100)
 
         # Calculate efficiencies
         efficiencies = self.calculate_efficiency(J_range)
@@ -198,15 +261,19 @@ class CustomCurves:
     @property
     def J_range(self) -> tuple[float, float]:
         """
-        Get the valid J range for interpolation.
+        Get the reference J range.
+        
+        Returns the range [J_min, J_max] where J_max is where KT typically crosses zero.
+        This is a reference value - KT and KQ can be calculated for any J value,
+        but efficiency requires KT >= 0.
 
         Returns:
         --------
         tuple[float, float]
             (J_min, J_max) range [-]
         """
-        # Report the first and last J values supplied for interpolation.
-        return float(self.J_values[0]), float(self.J_values[-1])
+        # Report the reference J range (KT zero crossing is a reference, not a hard limit).
+        return self.J_min, self.J_max
 
     @property
     def max_efficiency(self) -> float:

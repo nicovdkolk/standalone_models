@@ -1,5 +1,6 @@
 import numpy as np
 from typing import Union
+from scipy.optimize import brentq
 
 
 class WageningenB:
@@ -249,6 +250,76 @@ class WageningenB:
         self._ae_power = blade_area_ratio
         self._z_power = number_of_blades
 
+        # Find J_max where KT crosses zero
+        self.J_max = self._find_kt_zero_crossing()
+
+    def _find_kt_zero_crossing(self) -> float:
+        """
+        Find the J value where KT crosses zero.
+        
+        Samples KT over a wide J range and uses root finding to find
+        the exact zero crossing. If KT never crosses zero, returns
+        a large default value.
+        
+        This is a reference value - KT can be calculated for any J value,
+        but efficiency requires KT >= 0.
+        
+        Returns:
+        --------
+        float
+            Reference J value where KT typically crosses zero
+        """
+        # Sample KT over a reasonable range to find where it becomes negative
+        J_sample = np.linspace(0.0, 2.0, 200)
+        kt_sample = self._calculate_kt_raw(J_sample)
+        
+        # Find first point where KT <= 0
+        negative_mask = kt_sample <= 0
+        if np.any(negative_mask):
+            # Find the first negative point
+            first_negative_idx = np.where(negative_mask)[0][0]
+            if first_negative_idx > 0:
+                # Use root finding to find exact zero crossing
+                J_low = J_sample[first_negative_idx - 1]
+                J_high = J_sample[first_negative_idx]
+                try:
+                    J_zero = brentq(lambda J: self._calculate_kt_raw(J), J_low, J_high, xtol=1e-6)
+                    return float(J_zero)
+                except (ValueError, RuntimeError):
+                    # If root finding fails, use the point before first negative
+                    return float(J_sample[first_negative_idx - 1])
+            else:
+                # KT is negative from the start, return 0
+                return 0.0
+        else:
+            # KT never crosses zero, return a large default
+            return 2.0
+
+    def _calculate_kt_raw(self, J: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+        """
+        Calculate KT without clamping or J range limits (internal use).
+        
+        Used for finding zero crossings.
+        """
+        J_arr = np.asarray(J)
+        is_scalar = J_arr.ndim == 0
+        if is_scalar:
+            J_arr = np.array([J_arr])
+        
+        kt = np.zeros_like(J_arr, dtype=float)
+
+        for i, (s, t, u, v) in enumerate(self._KT_POWERS):
+            if i < len(self._KT_COEFFICIENTS):
+                kt += (self._KT_COEFFICIENTS[i] *
+                       np.power(J_arr, s) *
+                       np.power(self._pd_power, t) *
+                       np.power(self._ae_power, u) *
+                       np.power(self._z_power, v))
+
+        if is_scalar:
+            return float(kt[0])
+        return kt
+
     @staticmethod
     def _log_reynolds_term(reynolds_number: float) -> float:
         """Return log10(Re) - log10(2) for Reynolds corrections."""
@@ -306,6 +377,9 @@ class WageningenB:
 
         KT = Σ C_KT[i] × J^s[i] × (P/D)^t[i] × (Ae/A0)^u[i] × Z^v[i]
 
+        KT can be negative outside the valid operating range. J_max is a reference value
+        where KT typically crosses zero, but calculations are performed for all J values.
+
         Parameters:
         -----------
         J : float or np.ndarray
@@ -317,10 +391,15 @@ class WageningenB:
         Returns:
         --------
         float or np.ndarray
-            Thrust coefficient KT [-]
+            Thrust coefficient KT [-] (may be negative outside valid operating range)
         """
         # Evaluate KT polynomial and add Reynolds corrections when applicable.
         J = np.asarray(J)
+        is_scalar = J.ndim == 0
+        if is_scalar:
+            J = np.array([J])
+        
+        # Calculate KT for all J values (no range clamping)
         kt = np.zeros_like(J, dtype=float)
 
         for i, (s, t, u, v) in enumerate(self._KT_POWERS):
@@ -334,10 +413,10 @@ class WageningenB:
         if reynolds_number is not None and reynolds_number > 2_000_000:
             kt += self._delta_kt(J, reynolds_number)
 
-        # Ensure non-negative results (Kt must be positive)
-        kt = np.maximum(kt, 0.0)
-
-        return float(kt) if J.ndim == 0 else kt
+        if is_scalar:
+            return float(kt[0])
+        else:
+            return kt
 
     def calculate_kq(
         self,
@@ -348,6 +427,9 @@ class WageningenB:
         Calculate torque coefficient KQ at advance coefficient(s) J.
 
         KQ = Σ C_KQ[i] × J^s[i] × (P/D)^t[i] × (Ae/A0)^u[i] × Z^v[i]
+
+        KQ can be negative outside the valid operating range. J_max is a reference value
+        where KT typically crosses zero, but calculations are performed for all J values.
 
         Parameters:
         -----------
@@ -360,10 +442,15 @@ class WageningenB:
         Returns:
         --------
         float or np.ndarray
-            Torque coefficient KQ [-]
+            Torque coefficient KQ [-] (may be negative outside valid operating range)
         """
         # Evaluate KQ polynomial and add Reynolds corrections when applicable.
         J = np.asarray(J)
+        is_scalar = J.ndim == 0
+        if is_scalar:
+            J = np.array([J])
+        
+        # Calculate KQ for all J values (no range clamping)
         kq = np.zeros_like(J, dtype=float)
 
         for i, (s, t, u, v) in enumerate(self._KQ_POWERS):
@@ -377,10 +464,10 @@ class WageningenB:
         if reynolds_number is not None and reynolds_number > 2_000_000:
             kq += self._delta_kq(reynolds_number)
 
-        # Ensure non-negative results (Kq must be positive)
-        kq = np.maximum(kq, 0.0)
-
-        return float(kq) if J.ndim == 0 else kq
+        if is_scalar:
+            return float(kq[0])
+        else:
+            return kq
 
     def calculate_efficiency(
         self,
@@ -391,6 +478,9 @@ class WageningenB:
         Calculate open water efficiency η₀.
 
         η₀ = (J / 2π) × (KT / KQ)
+
+        Efficiency is only calculated where KT >= 0. KT and KQ may be negative outside
+        the valid operating range, but efficiency requires KT >= 0 for physical validity.
 
         Parameters:
         -----------
@@ -403,10 +493,15 @@ class WageningenB:
         Returns:
         --------
         float or np.ndarray
-            Open water efficiency η₀ [-]
+            Open water efficiency η₀ [-] (zero where KT < 0)
         """
         # Combine KT and KQ predictions into open-water efficiency while masking invalid ratios.
         J = np.asarray(J)
+        is_scalar = J.ndim == 0
+        if is_scalar:
+            J = np.array([J])
+        
+        # Calculate KT and KQ for all J values
         kt = self.calculate_kt(J, reynolds_number=reynolds_number)
         kq = self.calculate_kq(J, reynolds_number=reynolds_number)
 
@@ -414,13 +509,18 @@ class WageningenB:
         kt = np.asarray(kt)
         kq = np.asarray(kq)
 
-        # Avoid division by zero and very small numbers
-        # Only calculate efficiency where both Kt and Kq are positive
+        # Initialize result array with zeros
         eta_0 = np.zeros_like(J, dtype=float)
-        valid_mask = (kt > 0) & (kq > 1e-6)  # Both Kt and Kq must be positive
-        eta_0[valid_mask] = (J[valid_mask] / (2 * np.pi)) * (kt[valid_mask] / kq[valid_mask])
 
-        return float(eta_0) if J.ndim == 0 else eta_0
+        # Only calculate efficiency where KT >= 0 (enforce strict constraint)
+        # KQ > 1e-6 to avoid division by zero
+        efficiency_mask = (kt >= 0) & (kq > 1e-6)
+        eta_0[efficiency_mask] = (J[efficiency_mask] / (2 * np.pi)) * (kt[efficiency_mask] / kq[efficiency_mask])
+
+        if is_scalar:
+            return float(eta_0[0])
+        else:
+            return eta_0
 
     @property
     def max_efficiency_J(self) -> float:

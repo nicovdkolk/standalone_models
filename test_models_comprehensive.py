@@ -37,10 +37,63 @@ from standalone_models import (
     WageningenB, CustomCurves
 )
 
-# Set up plotting style
-plt.style.use('seaborn-v0_8-darkgrid' if 'seaborn-v0_8-darkgrid' in plt.style.available else 'default')
+# ============================================================================
+# ALBATROS COLOR SCHEME
+# ============================================================================
+
+ALBATROS_COLORS = {
+    "primary": {"petrol": "#0c4650", "yellow": "#f6e700"},
+    "graphic": {
+        "green": "#37aa32",
+        "red": "#e4190d",
+        "orange": "#ef7c00",
+        "light_orange": "#f6a200",
+        "soft_yellow": "#f7cf02",
+        "teal": "#0c9074",
+        "blue_green": "#0c93ac",
+    },
+    "secondary": {
+        "khaki": "#91874a",
+        "off_white": "#f9f8f2",
+        "turquoise": "#83a5a4",
+        "light_blue": "#e4ecef",
+        "dark_blue": "#00262c",
+    },
+}
+
+COLORWAY = [
+    ALBATROS_COLORS["graphic"]["soft_yellow"],
+    ALBATROS_COLORS["graphic"]["light_orange"],
+    ALBATROS_COLORS["graphic"]["orange"],
+    ALBATROS_COLORS["graphic"]["green"],
+    ALBATROS_COLORS["graphic"]["red"],
+    ALBATROS_COLORS["graphic"]["teal"],
+    ALBATROS_COLORS["graphic"]["blue_green"],
+]
+
+PRIMARY_BG = ALBATROS_COLORS["secondary"]["light_blue"]
+PRIMARY_TXT = ALBATROS_COLORS["secondary"]["dark_blue"]
+ACCENT = ALBATROS_COLORS["primary"]["petrol"]
+ACCENT_2 = ALBATROS_COLORS["primary"]["yellow"]
+
+# Set up plotting style with Albatros colors
+plt.style.use('default')
 plt.rcParams['figure.figsize'] = (14, 8)
 plt.rcParams['font.size'] = 10
+plt.rcParams['figure.facecolor'] = PRIMARY_BG
+plt.rcParams['axes.facecolor'] = ALBATROS_COLORS["secondary"]["off_white"]
+plt.rcParams['axes.edgecolor'] = ACCENT
+plt.rcParams['axes.labelcolor'] = PRIMARY_TXT
+plt.rcParams['text.color'] = PRIMARY_TXT
+plt.rcParams['xtick.color'] = PRIMARY_TXT
+plt.rcParams['ytick.color'] = PRIMARY_TXT
+plt.rcParams['axes.spines.top'] = True
+plt.rcParams['axes.spines.right'] = True
+plt.rcParams['axes.spines.left'] = True
+plt.rcParams['axes.spines.bottom'] = True
+plt.rcParams['axes.prop_cycle'] = plt.cycler('color', COLORWAY)
+plt.rcParams['grid.color'] = ALBATROS_COLORS["secondary"]["turquoise"]
+plt.rcParams['grid.alpha'] = 0.3
 
 # Create results directory if it doesn't exist
 os.makedirs('results', exist_ok=True)
@@ -62,7 +115,7 @@ print("=" * 80)
 physics = Physics()
 
 print("\nPhysics Constants:")
-print(f"  Water density: {physics.rho_w} kg/m³")
+print(f"  Water density: {physics.rho_w} t/m³")
 print(f"  Air density: {physics.rho_air} kg/m³")
 print(f"  Gravity: {physics.g} m/s²")
 print(f"  Water kinematic viscosity: {physics.nu_w} m²/s")
@@ -134,9 +187,8 @@ thrust_requirements = {
     "Medium Thrust": 150.0,
     "High Thrust": 300.0,
     "Very High Thrust": 500.0,
-    "Extreme Thrust": 750.0,
-    "Reverse Thrust": -100.0,  # Negative for reverse/braking
-}
+    "Extreme Thrust": 750.0
+    }
 
 print("\nThrust Requirements:")
 for name, thrust in thrust_requirements.items():
@@ -175,7 +227,7 @@ propeller_wageningen = Propeller(
     dia_prop=4.5,              # m
     wake_fraction=0.25,
     thrust_deduction=0.15,
-    n_prop=2,                  # 2 propellers
+    n_prop=1,
     pitch_diameter_ratio=0.8,
     blade_area_ratio=0.55,
     number_of_blades=4,
@@ -222,7 +274,7 @@ propeller_custom = Propeller(
     dia_prop=4.5,
     wake_fraction=0.25,
     thrust_deduction=0.15,
-    n_prop=2,
+    n_prop=1,
     max_rpm=200.0,
     nominal_rpm=150.0,
     # eta_delivered_power removed - will use custom KT/KQ curves
@@ -251,7 +303,7 @@ propeller_variable_eta = Propeller(
     dia_prop=4.5,
     wake_fraction=0.25,
     thrust_deduction=0.15,
-    n_prop=2,
+    n_prop=1,
     pitch_diameter_ratio=0.8,
     blade_area_ratio=0.55,
     number_of_blades=4,
@@ -365,32 +417,30 @@ print("=" * 80)
 
 def test_propeller_thrust_from_power(propeller, loadcase, power_kw):
     """Test: Given power, calculate thrust."""
-    power_w = power_kw * 1000
     thrust = propeller.thrust_from_power(
-        power_w,
+        power_kw,
         loadcase.speed,
         propeller.wake_fraction,
         propeller.thrust_deduction
     )
     if thrust is None:
         return None
-    return thrust / 1000  # Convert to kN
+    return thrust
 
 def test_propeller_power_from_thrust(propeller, loadcase, thrust_kn):
     """Test: Given thrust, calculate delivered power."""
-    thrust_n = thrust_kn * 1000
-    power_w = propeller.delivered_power_from_thrust(
-        thrust_n,
+    power_kw = propeller.delivered_power_from_thrust(
+        thrust_kn,
         loadcase.speed
     )
-    return power_w / 1000 if power_w is not None else None  # Convert to kW
+    return power_kw
 
 def test_propeller_power_from_rpm(propeller, loadcase, rpm):
     """Test: Given RPM, calculate power and thrust."""
     if not can_do_rpm_calculations(propeller):
         return None, None, None
     
-    power_w = propeller.power_from_rpm(
+    power_kw = propeller.power_from_rpm(
         rpm,
         loadcase.speed,
         propeller.wake_fraction
@@ -409,19 +459,18 @@ def test_propeller_power_from_rpm(propeller, loadcase, rpm):
         propeller.wake_fraction
     )
     
-    if power_w is None or thrust is None:
+    if power_kw is None or thrust is None:
         return None, None, None
     
-    return power_w / 1000, thrust / 1000, torque  # Convert to kW, kN, N⋅m
+    return power_kw, thrust, torque
 
 def test_propeller_rpm_from_thrust(propeller, loadcase, thrust_kn):
     """Test: Given thrust requirement, find required RPM."""
     if not can_do_rpm_calculations(propeller):
         return None
     
-    thrust_n = thrust_kn * 1000
     rpm = propeller.rpm_from_thrust_speed(
-        thrust_n,
+        thrust_kn,
         loadcase.speed,
         propeller.wake_fraction,
         propeller.thrust_deduction
@@ -433,9 +482,8 @@ def test_propeller_rpm_from_power(propeller, loadcase, power_kw):
     if not can_do_rpm_calculations(propeller):
         return None
     
-    power_w = power_kw * 1000
     rpm = propeller.rpm_from_power_speed(
-        power_w,
+        power_kw,
         loadcase.speed,
         propeller.wake_fraction
     )
@@ -451,12 +499,10 @@ def test_powering_flow(propeller, powering, loadcase, thrust_kn, est_power_kw=0.
         EST (Energy Storage Technology) power consumption [kW]
     """
     # Step 1: Calculate effective power from thrust
-    thrust_n = thrust_kn * 1000
-    effective_power_w = propeller.effective_power(loadcase, thrust_n)
+    effective_power_kw = propeller.effective_power(loadcase, thrust_kn)
     
     # Step 2: Calculate delivered power
-    delivered_power_w = propeller.delivered_power(loadcase, effective_power_w)
-    delivered_power_kw = delivered_power_w / 1000
+    delivered_power_kw = propeller.delivered_power(loadcase, effective_power_kw)
     
     # Step 3: Calculate shaft power
     shaft_power_kw = powering.shaft_power_from_delivered_power(delivered_power_kw)
@@ -482,7 +528,7 @@ def test_powering_flow(propeller, powering, loadcase, thrust_kn, est_power_kw=0.
     engine_valid = (powering.main_engine.is_valid_load(brake_power_kwm) if powering.main_engine is not None and brake_power_kwm > 0 else True)
     
     return {
-        "effective_power_kw": effective_power_w / 1000,
+        "effective_power_kw": effective_power_kw,
         "delivered_power_kw": delivered_power_kw,
         "shaft_power_kw": shaft_power_kw,
         "grid_load_kwe": grid_load_kwe,
@@ -795,12 +841,12 @@ for prop_name, prop in [("Wageningen B", propeller_wageningen),
                         ("Simple", propeller_simple)]:
     try:
         # Negative thrust should give negative effective power
-        thrust_n = -100000  # -100 kN
-        eff_power = prop.effective_power(lc_test, thrust_n)
+        thrust_kn = -100.0  # -100 kN
+        eff_power = prop.effective_power(lc_test, thrust_kn)
         edge_case_results.append({
             "test": "Negative Thrust",
             "propeller": prop_name,
-            "result": f"Effective Power: {eff_power/1000:.2f} kW",
+            "result": f"Effective Power: {eff_power:.2f} kW",
             "status": "OK"
         })
     except Exception as e:
@@ -928,162 +974,135 @@ speeds_ms = SPEED_RANGE_MS
 speeds_knots = SPEED_RANGE_KNOTS
 
 # ============================================================================
-# GROUP 1: SPEED-BASED (BACKWARDS) - Thrust from Power/Speed
+# GROUP 1: SPEED-BASED (FORWARDS) - Thrust from Power/Speed
 # ============================================================================
 
-print("\nGenerating Group 1: Speed-based (Backwards) - Thrust from Power/Speed")
+print("\nGenerating Group 1: Speed-based (Forwards) - Thrust from Power/Speed")
 
-fig1 = plt.figure(figsize=(18, 12))
-
-# Plot 1.1: Thrust vs Speed for different power levels - All propeller models
-ax1_1 = plt.subplot(2, 3, 1)
 power_levels = [1000, 2000, 3000, 4000]
 
-for prop_name, prop in [("Wageningen B", propeller_wageningen),
-                        ("Custom Curves", propeller_custom),
-                        ("Simple Model", propeller_simple)]:
-    for power_kw in power_levels:
-        thrusts = []
-        for speed_ms in speeds_ms:
-            lc = LoadCase("", speed_ms)
-            thrust = test_propeller_thrust_from_power(prop, lc, power_kw)
-            thrusts.append(thrust if thrust is not None else np.nan)
-        ax1_1.plot(speeds_knots, thrusts, label=f"{prop_name} @ {power_kw} kW", 
-                  linewidth=2, linestyle='-' if prop_name == "Wageningen B" else 
-                  '--' if prop_name == "Custom Curves" else ':', marker='o')
+# Plot 1.1-1.3: Combined 1x3 subplot - Simple Model, Wageningen B, Custom Curves
+fig1_combined = plt.figure(figsize=(18, 6), facecolor=PRIMARY_BG)
 
-ax1_1.set_xlabel("Speed [knots]")
-ax1_1.set_ylabel("Thrust [kN]")
-ax1_1.set_title("Thrust vs Speed (Backwards) - All Propeller Models")
-ax1_1.legend(fontsize=8, ncol=2)
-ax1_1.grid(True, alpha=0.3)
+# Subplot 1: Simple Model - Fixed eta_D (dashed) and Speed-dependent (solid) - Thrust vs Speed at different power levels
+ax1_1 = plt.subplot(1, 3, 1, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, power_kw in enumerate(power_levels):
+    # Fixed eta_D (Simple Model) - dashed lines
+    thrusts_fixed = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        thrust = test_propeller_thrust_from_power(propeller_simple, lc, power_kw)
+        thrusts_fixed.append(thrust if thrust is not None else np.nan)
+    ax1_1.plot(speeds_knots, thrusts_fixed, label=f"{power_kw} kW (fixed η_D)", linewidth=2.5, 
+               linestyle='--', color=COLORWAY[i % len(COLORWAY)])
+    
+    # Speed-dependent eta_D (Variable Eta Model) - solid lines
+    thrusts_var = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        thrust = test_propeller_thrust_from_power(propeller_variable_eta, lc, power_kw)
+        thrusts_var.append(thrust if thrust is not None else np.nan)
+    ax1_1.plot(speeds_knots, thrusts_var, label=f"{power_kw} kW (var η_D)", linewidth=2.5, 
+               linestyle='-', color=COLORWAY[i % len(COLORWAY)], alpha=0.8)
+ax1_1.set_xlabel("Speed [knots]", fontsize=11, color=PRIMARY_TXT)
+ax1_1.set_ylabel("Thrust [kN]", fontsize=11, color=PRIMARY_TXT)
+ax1_1.set_title("Simple Model: Fixed vs Speed-dependent η_D (Forwards)", fontsize=12, fontweight='bold', color=PRIMARY_TXT)
+ax1_1.legend(fontsize=8, frameon=True, fancybox=True, shadow=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax1_1.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax1_1.spines.values():
+    spine.set_color(ACCENT)
+ax1_1.tick_params(colors=PRIMARY_TXT)
 
-# Plot 1.2: Thrust vs Speed - Wageningen B at different power levels
-ax1_2 = plt.subplot(2, 3, 2)
-for power_kw in power_levels:
+# Subplot 2: Wageningen B - Thrust vs Speed at different power levels
+ax1_2 = plt.subplot(1, 3, 2, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, power_kw in enumerate(power_levels):
     thrusts = []
     for speed_ms in speeds_ms:
         lc = LoadCase("", speed_ms)
         thrust = test_propeller_thrust_from_power(propeller_wageningen, lc, power_kw)
         thrusts.append(thrust if thrust is not None else np.nan)
-    ax1_2.plot(speeds_knots, thrusts, label=f"{power_kw} kW", linewidth=2, marker='o')
+    ax1_2.plot(speeds_knots, thrusts, label=f"{power_kw} kW", linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax1_2.set_xlabel("Speed [knots]", fontsize=11, color=PRIMARY_TXT)
+ax1_2.set_ylabel("Thrust [kN]", fontsize=11, color=PRIMARY_TXT)
+ax1_2.set_title("Wageningen B: Thrust vs Speed (Forwards)", fontsize=12, fontweight='bold', color=PRIMARY_TXT)
+ax1_2.legend(fontsize=9, frameon=True, fancybox=True, shadow=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax1_2.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax1_2.spines.values():
+    spine.set_color(ACCENT)
+ax1_2.tick_params(colors=PRIMARY_TXT)
 
-ax1_2.set_xlabel("Speed [knots]")
-ax1_2.set_ylabel("Thrust [kN]")
-ax1_2.set_title("Thrust vs Speed - Wageningen B")
-ax1_2.legend()
-ax1_2.grid(True, alpha=0.3)
-
-# Plot 1.3: Thrust vs Speed - Custom Curves at different power levels
-ax1_3 = plt.subplot(2, 3, 3)
-for power_kw in power_levels:
+# Subplot 3: Custom Curves - Thrust vs Speed at different power levels
+ax1_3 = plt.subplot(1, 3, 3, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, power_kw in enumerate(power_levels):
     thrusts = []
     for speed_ms in speeds_ms:
         lc = LoadCase("", speed_ms)
         thrust = test_propeller_thrust_from_power(propeller_custom, lc, power_kw)
         thrusts.append(thrust if thrust is not None else np.nan)
-    ax1_3.plot(speeds_knots, thrusts, label=f"{power_kw} kW", linewidth=2, marker='o')
-
-ax1_3.set_xlabel("Speed [knots]")
-ax1_3.set_ylabel("Thrust [kN]")
-ax1_3.set_title("Thrust vs Speed - Custom Curves")
-ax1_3.legend()
-ax1_3.grid(True, alpha=0.3)
-
-# Plot 1.4: Thrust vs Speed - Simple Model at different power levels
-ax1_4 = plt.subplot(2, 3, 4)
-for power_kw in power_levels:
-    thrusts = []
-    for speed_ms in speeds_ms:
-        lc = LoadCase("", speed_ms)
-        thrust = test_propeller_thrust_from_power(propeller_simple, lc, power_kw)
-        thrusts.append(thrust if thrust is not None else np.nan)
-    ax1_4.plot(speeds_knots, thrusts, label=f"{power_kw} kW", linewidth=2, marker='o')
-
-ax1_4.set_xlabel("Speed [knots]")
-ax1_4.set_ylabel("Thrust [kN]")
-ax1_4.set_title("Thrust vs Speed - Simple Model")
-ax1_4.legend()
-ax1_4.grid(True, alpha=0.3)
-
-# Plot 1.5: Single vs Double Propeller Comparison
-ax1_5 = plt.subplot(2, 3, 5)
-power_test = 2000.0
-for prop_name, prop in [("Single Prop", propeller_single),
-                        ("Double Prop", propeller_wageningen)]:
-    thrusts = []
-    for speed_ms in speeds_ms:
-        lc = LoadCase("", speed_ms)
-        thrust = test_propeller_thrust_from_power(prop, lc, power_test)
-        thrusts.append(thrust if thrust is not None else np.nan)
-    ax1_5.plot(speeds_knots, thrusts, label=f"{prop_name} ({prop.n_prop} prop)", linewidth=2, marker='o')
-
-ax1_5.set_xlabel("Speed [knots]")
-ax1_5.set_ylabel("Thrust [kN]")
-ax1_5.set_title(f"Single vs Double Propeller ({power_test} kW)")
-ax1_5.legend()
-ax1_5.grid(True, alpha=0.3)
-
-# Plot 1.6: Variable vs Constant Efficiency Impact
-ax1_6 = plt.subplot(2, 3, 6)
-power_test = 2000.0
-for prop_name, prop in [("Variable Eta", propeller_variable_eta),
-                        ("Simple (Constant)", propeller_simple)]:
-    thrusts = []
-    for speed_ms in speeds_ms:
-        lc = LoadCase("", speed_ms)
-        thrust = test_propeller_thrust_from_power(prop, lc, power_test)
-        thrusts.append(thrust if thrust is not None else np.nan)
-    ax1_6.plot(speeds_knots, thrusts, label=prop_name, linewidth=2, marker='o')
-
-ax1_6.set_xlabel("Speed [knots]")
-ax1_6.set_ylabel("Thrust [kN]")
-ax1_6.set_title(f"Variable vs Constant Efficiency ({power_test} kW)")
-ax1_6.legend()
-ax1_6.grid(True, alpha=0.3)
+    ax1_3.plot(speeds_knots, thrusts, label=f"{power_kw} kW", linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax1_3.set_xlabel("Speed [knots]", fontsize=11, color=PRIMARY_TXT)
+ax1_3.set_ylabel("Thrust [kN]", fontsize=11, color=PRIMARY_TXT)
+ax1_3.set_title("Custom Curves: Thrust vs Speed (Forwards)", fontsize=12, fontweight='bold', color=PRIMARY_TXT)
+ax1_3.legend(fontsize=9, frameon=True, fancybox=True, shadow=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax1_3.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax1_3.spines.values():
+    spine.set_color(ACCENT)
+ax1_3.tick_params(colors=PRIMARY_TXT)
 
 plt.tight_layout()
-plt.savefig("results/test_results_comprehensive_group1_speed_backwards.png", dpi=150, bbox_inches='tight')
-print("  Saved: results/test_results_comprehensive_group1_speed_backwards.png")
+plt.savefig("results/test_results_comprehensive_group1_forwards.png", dpi=150, bbox_inches='tight', facecolor=PRIMARY_BG)
+print("  Saved: results/test_results_comprehensive_group1_forwards.png")
 plt.close()
 
 # ============================================================================
-# GROUP 2: SPEED-BASED (FORWARDS) - Power from Thrust/Speed
+# GROUP 2: SPEED-BASED (BACKWARDS) - Power from Thrust/Speed
 # ============================================================================
 
-print("\nGenerating Group 2: Speed-based (Forwards) - Power from Thrust/Speed")
+print("\nGenerating Group 2: Speed-based (Backwards) - Power from Thrust/Speed")
 
-fig2 = plt.figure(figsize=(18, 12))
-
-# Plot 2.1: Power vs Speed for different thrust levels - All propeller models
-ax2_1 = plt.subplot(2, 3, 1)
 thrust_levels = [100, 200, 300, 400]
 
-for prop_name, prop in [("Wageningen B", propeller_wageningen),
-                        ("Custom Curves", propeller_custom),
-                        ("Simple Model", propeller_simple)]:
-    for thrust_kn in thrust_levels:
-        powers = []
-        for speed_ms in speeds_ms:
-            lc = LoadCase("", speed_ms)
-            power_kw = test_propeller_power_from_thrust(prop, lc, thrust_kn)
-            if power_kw is not None:
-                powers.append(power_kw)
-            else:
-                powers.append(np.nan)
-        ax2_1.plot(speeds_knots, powers, label=f"{prop_name} @ {thrust_kn} kN", 
-                  linewidth=2, linestyle='-' if prop_name == "Wageningen B" else 
-                  '--' if prop_name == "Custom Curves" else ':', marker='o')
+# Plot 2.1-2.3: Combined 1x3 subplot - Simple Model, Wageningen B, Custom Curves
+fig2_combined = plt.figure(figsize=(18, 6), facecolor=PRIMARY_BG)
 
-ax2_1.set_xlabel("Speed [knots]")
-ax2_1.set_ylabel("Power [kW]")
-ax2_1.set_title("Power vs Speed (Forwards) - All Propeller Models")
-ax2_1.legend(fontsize=8, ncol=2)
-ax2_1.grid(True, alpha=0.3)
+# Subplot 1: Simple Model - Fixed eta_D (dashed) and Speed-dependent (solid) - Power vs Speed at different thrust levels
+ax2_1 = plt.subplot(1, 3, 1, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, thrust_kn in enumerate(thrust_levels):
+    # Fixed eta_D (Simple Model) - dashed lines
+    powers_fixed = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        power_kw = test_propeller_power_from_thrust(propeller_simple, lc, thrust_kn)
+        if power_kw is not None:
+            powers_fixed.append(power_kw)
+        else:
+            powers_fixed.append(np.nan)
+    ax2_1.plot(speeds_knots, powers_fixed, label=f"{thrust_kn} kN (fixed η_D)", linewidth=2.5, 
+               linestyle='--', color=COLORWAY[i % len(COLORWAY)])
+    
+    # Speed-dependent eta_D (Variable Eta Model) - solid lines
+    powers_var = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        power_kw = test_propeller_power_from_thrust(propeller_variable_eta, lc, thrust_kn)
+        if power_kw is not None:
+            powers_var.append(power_kw)
+        else:
+            powers_var.append(np.nan)
+    ax2_1.plot(speeds_knots, powers_var, label=f"{thrust_kn} kN (var η_D)", linewidth=2.5, 
+               linestyle='-', color=COLORWAY[i % len(COLORWAY)], alpha=0.8)
+ax2_1.set_xlabel("Speed [knots]", fontsize=11, color=PRIMARY_TXT)
+ax2_1.set_ylabel("Power [kW]", fontsize=11, color=PRIMARY_TXT)
+ax2_1.set_title("Simple Model: Fixed vs Speed-dependent η_D (Backwards)", fontsize=12, fontweight='bold', color=PRIMARY_TXT)
+ax2_1.legend(fontsize=8, frameon=True, fancybox=True, shadow=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax2_1.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax2_1.spines.values():
+    spine.set_color(ACCENT)
+ax2_1.tick_params(colors=PRIMARY_TXT)
 
-# Plot 2.2: Power vs Speed - Wageningen B at different thrust levels
-ax2_2 = plt.subplot(2, 3, 2)
-for thrust_kn in thrust_levels:
+# Subplot 2: Wageningen B - Power vs Speed at different thrust levels
+ax2_2 = plt.subplot(1, 3, 2, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, thrust_kn in enumerate(thrust_levels):
     powers = []
     for speed_ms in speeds_ms:
         lc = LoadCase("", speed_ms)
@@ -1092,17 +1111,19 @@ for thrust_kn in thrust_levels:
             powers.append(power_kw)
         else:
             powers.append(np.nan)
-    ax2_2.plot(speeds_knots, powers, label=f"{thrust_kn} kN", linewidth=2, marker='o')
+    ax2_2.plot(speeds_knots, powers, label=f"{thrust_kn} kN", linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax2_2.set_xlabel("Speed [knots]", fontsize=11, color=PRIMARY_TXT)
+ax2_2.set_ylabel("Power [kW]", fontsize=11, color=PRIMARY_TXT)
+ax2_2.set_title("Wageningen B: Power vs Speed (Backwards)", fontsize=12, fontweight='bold', color=PRIMARY_TXT)
+ax2_2.legend(fontsize=9, frameon=True, fancybox=True, shadow=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax2_2.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax2_2.spines.values():
+    spine.set_color(ACCENT)
+ax2_2.tick_params(colors=PRIMARY_TXT)
 
-ax2_2.set_xlabel("Speed [knots]")
-ax2_2.set_ylabel("Power [kW]")
-ax2_2.set_title("Power vs Speed - Wageningen B")
-ax2_2.legend()
-ax2_2.grid(True, alpha=0.3)
-
-# Plot 2.3: Power vs Speed - Custom Curves at different thrust levels
-ax2_3 = plt.subplot(2, 3, 3)
-for thrust_kn in thrust_levels:
+# Subplot 3: Custom Curves - Power vs Speed at different thrust levels
+ax2_3 = plt.subplot(1, 3, 3, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, thrust_kn in enumerate(thrust_levels):
     powers = []
     for speed_ms in speeds_ms:
         lc = LoadCase("", speed_ms)
@@ -1111,53 +1132,46 @@ for thrust_kn in thrust_levels:
             powers.append(power_kw)
         else:
             powers.append(np.nan)
-    ax2_3.plot(speeds_knots, powers, label=f"{thrust_kn} kN", linewidth=2, marker='o')
+    ax2_3.plot(speeds_knots, powers, label=f"{thrust_kn} kN", linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax2_3.set_xlabel("Speed [knots]", fontsize=11, color=PRIMARY_TXT)
+ax2_3.set_ylabel("Power [kW]", fontsize=11, color=PRIMARY_TXT)
+ax2_3.set_title("Custom Curves: Power vs Speed (Backwards)", fontsize=12, fontweight='bold', color=PRIMARY_TXT)
+ax2_3.legend(fontsize=9, frameon=True, fancybox=True, shadow=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax2_3.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax2_3.spines.values():
+    spine.set_color(ACCENT)
+ax2_3.tick_params(colors=PRIMARY_TXT)
 
-ax2_3.set_xlabel("Speed [knots]")
-ax2_3.set_ylabel("Power [kW]")
-ax2_3.set_title("Power vs Speed - Custom Curves")
-ax2_3.legend()
-ax2_3.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.savefig("results/test_results_comprehensive_group2_backwards.png", dpi=150, bbox_inches='tight', facecolor=PRIMARY_BG)
+print("  Saved: results/test_results_comprehensive_group2_backwards.png")
+plt.close()
 
-# Plot 2.4: Power vs Speed - Simple Model at different thrust levels
-ax2_4 = plt.subplot(2, 3, 4)
-for thrust_kn in thrust_levels:
-    powers = []
-    for speed_ms in speeds_ms:
-        lc = LoadCase("", speed_ms)
-        power_kw = test_propeller_power_from_thrust(propeller_simple, lc, thrust_kn)
-        if power_kw is not None:
-            powers.append(power_kw)
-        else:
-            powers.append(np.nan)
-    ax2_4.plot(speeds_knots, powers, label=f"{thrust_kn} kN", linewidth=2, marker='o')
+# Plot 2.4: Required RPM vs Speed and Variable vs Constant Efficiency
+fig2_4 = plt.figure(figsize=(16, 6), facecolor=PRIMARY_BG)
 
-ax2_4.set_xlabel("Speed [knots]")
-ax2_4.set_ylabel("Power [kW]")
-ax2_4.set_title("Power vs Speed - Simple Model")
-ax2_4.legend()
-ax2_4.grid(True, alpha=0.3)
-
-# Plot 2.5: Required RPM vs Speed for different thrust levels
-ax2_5 = plt.subplot(2, 3, 5)
+# Required RPM vs Speed
+ax2_4a = plt.subplot(1, 2, 1, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
 if not df_rpm_from_thrust.empty:
-    for prop_name in df_rpm_from_thrust["propeller"].unique():
+    for i, prop_name in enumerate(df_rpm_from_thrust["propeller"].unique()):
         prop_data = df_rpm_from_thrust[df_rpm_from_thrust["propeller"] == prop_name]
-        # Convert loadcase strings back to numeric for plotting
         speeds_plot = [float(lc.split()[0]) for lc in prop_data["loadcase"]]
-        ax2_5.plot(speeds_plot, prop_data["required_rpm"], 
-                  label=prop_name, marker='o', linewidth=2)
-ax2_5.set_xlabel("Speed [knots]")
-ax2_5.set_ylabel("Required RPM")
-ax2_5.set_title("Required RPM vs Speed (200 kN thrust)")
-ax2_5.legend()
-ax2_5.grid(True, alpha=0.3)
+        ax2_4a.plot(speeds_plot, prop_data["required_rpm"], 
+                  label=prop_name, linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax2_4a.set_xlabel("Speed [knots]", fontsize=11, color=PRIMARY_TXT)
+ax2_4a.set_ylabel("Required RPM", fontsize=11, color=PRIMARY_TXT)
+ax2_4a.set_title("Required RPM vs Speed (200 kN thrust)", fontsize=12, fontweight='bold', color=PRIMARY_TXT)
+ax2_4a.legend(fontsize=10, frameon=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax2_4a.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax2_4a.spines.values():
+    spine.set_color(ACCENT)
+ax2_4a.tick_params(colors=PRIMARY_TXT)
 
-# Plot 2.6: Variable vs Constant Efficiency - Power perspective
-ax2_6 = plt.subplot(2, 3, 6)
+# Variable vs Constant Efficiency
+ax2_4b = plt.subplot(1, 2, 2, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
 thrust_test = 200.0
-for prop_name, prop in [("Variable Eta", propeller_variable_eta),
-                        ("Simple (Constant)", propeller_simple)]:
+for i, (prop_name, prop) in enumerate([("Variable Eta", propeller_variable_eta),
+                        ("Simple (Constant)", propeller_simple)]):
     powers = []
     for speed_ms in speeds_ms:
         lc = LoadCase("", speed_ms)
@@ -1166,17 +1180,19 @@ for prop_name, prop in [("Variable Eta", propeller_variable_eta),
             powers.append(power_kw)
         else:
             powers.append(np.nan)
-    ax2_6.plot(speeds_knots, powers, label=prop_name, linewidth=2, marker='o')
-
-ax2_6.set_xlabel("Speed [knots]")
-ax2_6.set_ylabel("Power [kW]")
-ax2_6.set_title(f"Variable vs Constant Efficiency ({thrust_test} kN)")
-ax2_6.legend()
-ax2_6.grid(True, alpha=0.3)
+    ax2_4b.plot(speeds_knots, powers, label=prop_name, linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax2_4b.set_xlabel("Speed [knots]", fontsize=11, color=PRIMARY_TXT)
+ax2_4b.set_ylabel("Power [kW]", fontsize=11, color=PRIMARY_TXT)
+ax2_4b.set_title(f"Variable vs Constant Efficiency ({thrust_test} kN)", fontsize=12, fontweight='bold', color=PRIMARY_TXT)
+ax2_4b.legend(fontsize=10, frameon=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax2_4b.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax2_4b.spines.values():
+    spine.set_color(ACCENT)
+ax2_4b.tick_params(colors=PRIMARY_TXT)
 
 plt.tight_layout()
-plt.savefig("results/test_results_comprehensive_group2_speed_forwards.png", dpi=150, bbox_inches='tight')
-print("  Saved: results/test_results_comprehensive_group2_speed_forwards.png")
+plt.savefig("results/test_results_comprehensive_group2_comparisons_backwards.png", dpi=150, bbox_inches='tight', facecolor=PRIMARY_BG)
+print("  Saved: results/test_results_comprehensive_group2_comparisons_backwards.png")
 plt.close()
 
 # ============================================================================
@@ -1185,80 +1201,150 @@ plt.close()
 
 print("\nGenerating Group 3: Power/RPM/Torque-based Analysis")
 
-fig3 = plt.figure(figsize=(18, 12))
-
-# Plot 3.1: Power from RPM vs Speed - All propeller models
-ax3_1 = plt.subplot(2, 3, 1)
 rpm_levels = [100, 150, 200]
-
-for prop_name, prop in [("Wageningen B", propeller_wageningen),
-                        ("Custom Curves", propeller_custom)]:
-    for rpm in rpm_levels:
-        powers = []
-        for speed_ms in speeds_ms:
-            lc = LoadCase("", speed_ms)
-            power_kw, _, _ = test_propeller_power_from_rpm(prop, lc, rpm)
-            if power_kw is not None:
-                powers.append(power_kw)
-            else:
-                powers.append(np.nan)
-        ax3_1.plot(speeds_knots, powers, label=f"{prop_name} @ {rpm} RPM", 
-                  linewidth=2, marker='o', markersize=5)
-
-ax3_1.set_xlabel("Speed [knots]")
-ax3_1.set_ylabel("Power [kW]")
-ax3_1.set_title("Power from RPM vs Speed - All Models")
-ax3_1.legend(fontsize=8, ncol=2)
-ax3_1.grid(True, alpha=0.3)
-
-# Plot 3.2: Thrust from RPM vs Speed - All propeller models
-ax3_2 = plt.subplot(2, 3, 2)
-for prop_name, prop in [("Wageningen B", propeller_wageningen),
-                        ("Custom Curves", propeller_custom)]:
-    for rpm in rpm_levels:
-        thrusts = []
-        for speed_ms in speeds_ms:
-            lc = LoadCase("", speed_ms)
-            _, thrust_kn, _ = test_propeller_power_from_rpm(prop, lc, rpm)
-            if thrust_kn is not None:
-                thrusts.append(thrust_kn)
-            else:
-                thrusts.append(np.nan)
-        ax3_2.plot(speeds_knots, thrusts, label=f"{prop_name} @ {rpm} RPM", 
-                  linewidth=2, marker='o', markersize=5)
-
-ax3_2.set_xlabel("Speed [knots]")
-ax3_2.set_ylabel("Thrust [kN]")
-ax3_2.set_title("Thrust from RPM vs Speed - All Models")
-ax3_2.legend(fontsize=8, ncol=2)
-ax3_2.grid(True, alpha=0.3)
-
-# Plot 3.3: Torque from RPM vs Speed - All propeller models
-ax3_3 = plt.subplot(2, 3, 3)
-for prop_name, prop in [("Wageningen B", propeller_wageningen),
-                        ("Custom Curves", propeller_custom)]:
-    for rpm in rpm_levels:
-        torques = []
-        for speed_ms in speeds_ms:
-            lc = LoadCase("", speed_ms)
-            _, _, torque = test_propeller_power_from_rpm(prop, lc, rpm)
-            if torque is not None:
-                torques.append(torque / 1000)  # Convert to kN⋅m
-            else:
-                torques.append(np.nan)
-        ax3_3.plot(speeds_knots, torques, label=f"{prop_name} @ {rpm} RPM", 
-                  linewidth=2, marker='o', markersize=5)
-
-ax3_3.set_xlabel("Speed [knots]")
-ax3_3.set_ylabel("Torque [kN⋅m]")
-ax3_3.set_title("Torque from RPM vs Speed - All Models")
-ax3_3.legend(fontsize=8, ncol=2)
-ax3_3.grid(True, alpha=0.3)
-
-# Plot 3.4: Power vs RPM at fixed speeds
-ax3_4 = plt.subplot(2, 3, 4)
 rpm_range = np.linspace(50, 250, 50)
-for lc in [loadcases[1], loadcases[2], loadcases[4]]:  # 4, 8, 16 knots
+
+# Plot 3.1: Wageningen B - Power, Thrust, Torque from RPM vs Speed
+fig3_1 = plt.figure(figsize=(16, 5), facecolor=PRIMARY_BG)
+
+ax3_1a = plt.subplot(1, 3, 1, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, rpm in enumerate(rpm_levels):
+    powers = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        power_kw, _, _ = test_propeller_power_from_rpm(propeller_wageningen, lc, rpm)
+        if power_kw is not None:
+            powers.append(power_kw)
+        else:
+            powers.append(np.nan)
+    ax3_1a.plot(speeds_knots, powers, label=f"{rpm} RPM", linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax3_1a.set_xlabel("Speed [knots]", fontsize=11, color=PRIMARY_TXT)
+ax3_1a.set_ylabel("Power [kW]", fontsize=11, color=PRIMARY_TXT)
+ax3_1a.set_title("Wageningen B: Power from RPM", fontsize=12, fontweight='bold', color=PRIMARY_TXT)
+ax3_1a.legend(fontsize=10, frameon=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax3_1a.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax3_1a.spines.values():
+    spine.set_color(ACCENT)
+ax3_1a.tick_params(colors=PRIMARY_TXT)
+
+ax3_1b = plt.subplot(1, 3, 2, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, rpm in enumerate(rpm_levels):
+    thrusts = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        _, thrust_kn, _ = test_propeller_power_from_rpm(propeller_wageningen, lc, rpm)
+        if thrust_kn is not None:
+            thrusts.append(thrust_kn)
+        else:
+            thrusts.append(np.nan)
+    ax3_1b.plot(speeds_knots, thrusts, label=f"{rpm} RPM", linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax3_1b.set_xlabel("Speed [knots]", fontsize=11, color=PRIMARY_TXT)
+ax3_1b.set_ylabel("Thrust [kN]", fontsize=11, color=PRIMARY_TXT)
+ax3_1b.set_title("Wageningen B: Thrust from RPM", fontsize=12, fontweight='bold', color=PRIMARY_TXT)
+ax3_1b.legend(fontsize=10, frameon=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax3_1b.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax3_1b.spines.values():
+    spine.set_color(ACCENT)
+ax3_1b.tick_params(colors=PRIMARY_TXT)
+
+ax3_1c = plt.subplot(1, 3, 3, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, rpm in enumerate(rpm_levels):
+    torques = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        _, _, torque = test_propeller_power_from_rpm(propeller_wageningen, lc, rpm)
+        if torque is not None:
+            torques.append(torque)
+        else:
+            torques.append(np.nan)
+    ax3_1c.plot(speeds_knots, torques, label=f"{rpm} RPM", linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax3_1c.set_xlabel("Speed [knots]", fontsize=11, color=PRIMARY_TXT)
+ax3_1c.set_ylabel("Torque [kN m]", fontsize=11, color=PRIMARY_TXT)
+ax3_1c.set_title("Wageningen B: Torque from RPM", fontsize=12, fontweight='bold', color=PRIMARY_TXT)
+ax3_1c.legend(fontsize=10, frameon=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax3_1c.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax3_1c.spines.values():
+    spine.set_color(ACCENT)
+ax3_1c.tick_params(colors=PRIMARY_TXT)
+
+plt.tight_layout()
+plt.savefig("results/test_results_comprehensive_group3_wageningen_rpm_speed.png", dpi=150, bbox_inches='tight', facecolor=PRIMARY_BG)
+print("  Saved: results/test_results_comprehensive_group3_wageningen_rpm_speed.png")
+plt.close()
+
+# Plot 3.2: Custom Curves - Power, Thrust, Torque from RPM vs Speed
+fig3_2 = plt.figure(figsize=(16, 5), facecolor=PRIMARY_BG)
+
+ax3_2a = plt.subplot(1, 3, 1, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, rpm in enumerate(rpm_levels):
+    powers = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        power_kw, _, _ = test_propeller_power_from_rpm(propeller_custom, lc, rpm)
+        if power_kw is not None:
+            powers.append(power_kw)
+        else:
+            powers.append(np.nan)
+    ax3_2a.plot(speeds_knots, powers, label=f"{rpm} RPM", linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax3_2a.set_xlabel("Speed [knots]", fontsize=11, color=PRIMARY_TXT)
+ax3_2a.set_ylabel("Power [kW]", fontsize=11, color=PRIMARY_TXT)
+ax3_2a.set_title("Custom Curves: Power from RPM", fontsize=12, fontweight='bold', color=PRIMARY_TXT)
+ax3_2a.legend(fontsize=10, frameon=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax3_2a.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax3_2a.spines.values():
+    spine.set_color(ACCENT)
+ax3_2a.tick_params(colors=PRIMARY_TXT)
+
+ax3_2b = plt.subplot(1, 3, 2, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, rpm in enumerate(rpm_levels):
+    thrusts = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        _, thrust_kn, _ = test_propeller_power_from_rpm(propeller_custom, lc, rpm)
+        if thrust_kn is not None:
+            thrusts.append(thrust_kn)
+        else:
+            thrusts.append(np.nan)
+    ax3_2b.plot(speeds_knots, thrusts, label=f"{rpm} RPM", linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax3_2b.set_xlabel("Speed [knots]", fontsize=11, color=PRIMARY_TXT)
+ax3_2b.set_ylabel("Thrust [kN]", fontsize=11, color=PRIMARY_TXT)
+ax3_2b.set_title("Custom Curves: Thrust from RPM", fontsize=12, fontweight='bold', color=PRIMARY_TXT)
+ax3_2b.legend(fontsize=10, frameon=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax3_2b.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax3_2b.spines.values():
+    spine.set_color(ACCENT)
+ax3_2b.tick_params(colors=PRIMARY_TXT)
+
+ax3_2c = plt.subplot(1, 3, 3, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, rpm in enumerate(rpm_levels):
+    torques = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        _, _, torque = test_propeller_power_from_rpm(propeller_custom, lc, rpm)
+        if torque is not None:
+            torques.append(torque)
+        else:
+            torques.append(np.nan)
+    ax3_2c.plot(speeds_knots, torques, label=f"{rpm} RPM", linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax3_2c.set_xlabel("Speed [knots]", fontsize=11, color=PRIMARY_TXT)
+ax3_2c.set_ylabel("Torque [kN m]", fontsize=11, color=PRIMARY_TXT)
+ax3_2c.set_title("Custom Curves: Torque from RPM", fontsize=12, fontweight='bold', color=PRIMARY_TXT)
+ax3_2c.legend(fontsize=10, frameon=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax3_2c.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax3_2c.spines.values():
+    spine.set_color(ACCENT)
+ax3_2c.tick_params(colors=PRIMARY_TXT)
+
+plt.tight_layout()
+plt.savefig("results/test_results_comprehensive_group3_custom_rpm_speed.png", dpi=150, bbox_inches='tight', facecolor=PRIMARY_BG)
+print("  Saved: results/test_results_comprehensive_group3_custom_rpm_speed.png")
+plt.close()
+
+# Plot 3.3: Wageningen B - Power, Thrust, Torque vs RPM at fixed speeds
+fig3_3 = plt.figure(figsize=(16, 5), facecolor=PRIMARY_BG)
+
+ax3_3a = plt.subplot(1, 3, 1, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, lc in enumerate([loadcases[1], loadcases[2], loadcases[4]]):  # 4, 8, 16 knots
     powers = []
     for rpm in rpm_range:
         power_kw, _, _ = test_propeller_power_from_rpm(propeller_wageningen, lc, rpm)
@@ -1266,17 +1352,18 @@ for lc in [loadcases[1], loadcases[2], loadcases[4]]:  # 4, 8, 16 knots
             powers.append(power_kw)
         else:
             powers.append(np.nan)
-    ax3_4.plot(rpm_range, powers, label=f"{lc.speed * MS_TO_KNOTS:.2f} knots", linewidth=2)
+    ax3_3a.plot(rpm_range, powers, label=f"{lc.speed * MS_TO_KNOTS:.2f} knots", linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax3_3a.set_xlabel("RPM", fontsize=11, color=PRIMARY_TXT)
+ax3_3a.set_ylabel("Power [kW]", fontsize=11, color=PRIMARY_TXT)
+ax3_3a.set_title("Wageningen B: Power vs RPM", fontsize=12, fontweight='bold', color=PRIMARY_TXT)
+ax3_3a.legend(fontsize=10, frameon=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax3_3a.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax3_3a.spines.values():
+    spine.set_color(ACCENT)
+ax3_3a.tick_params(colors=PRIMARY_TXT)
 
-ax3_4.set_xlabel("RPM")
-ax3_4.set_ylabel("Power [kW]")
-ax3_4.set_title("Power vs RPM (Wageningen B)")
-ax3_4.legend()
-ax3_4.grid(True, alpha=0.3)
-
-# Plot 3.5: Thrust vs RPM at fixed speeds
-ax3_5 = plt.subplot(2, 3, 5)
-for lc in [loadcases[1], loadcases[2], loadcases[4]]:  # 4, 8, 16 knots
+ax3_3b = plt.subplot(1, 3, 2, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, lc in enumerate([loadcases[1], loadcases[2], loadcases[4]]):  # 4, 8, 16 knots
     thrusts = []
     for rpm in rpm_range:
         _, thrust_kn, _ = test_propeller_power_from_rpm(propeller_wageningen, lc, rpm)
@@ -1284,35 +1371,38 @@ for lc in [loadcases[1], loadcases[2], loadcases[4]]:  # 4, 8, 16 knots
             thrusts.append(thrust_kn)
         else:
             thrusts.append(np.nan)
-    ax3_5.plot(rpm_range, thrusts, label=f"{lc.speed * MS_TO_KNOTS:.2f} knots", linewidth=2)
+    ax3_3b.plot(rpm_range, thrusts, label=f"{lc.speed * MS_TO_KNOTS:.2f} knots", linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax3_3b.set_xlabel("RPM", fontsize=11, color=PRIMARY_TXT)
+ax3_3b.set_ylabel("Thrust [kN]", fontsize=11, color=PRIMARY_TXT)
+ax3_3b.set_title("Wageningen B: Thrust vs RPM", fontsize=12, fontweight='bold', color=PRIMARY_TXT)
+ax3_3b.legend(fontsize=10, frameon=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax3_3b.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax3_3b.spines.values():
+    spine.set_color(ACCENT)
+ax3_3b.tick_params(colors=PRIMARY_TXT)
 
-ax3_5.set_xlabel("RPM")
-ax3_5.set_ylabel("Thrust [kN]")
-ax3_5.set_title("Thrust vs RPM (Wageningen B)")
-ax3_5.legend()
-ax3_5.grid(True, alpha=0.3)
-
-# Plot 3.6: Torque vs RPM at fixed speeds
-ax3_6 = plt.subplot(2, 3, 6)
-for lc in [loadcases[1], loadcases[2], loadcases[4]]:  # 4, 8, 16 knots
+ax3_3c = plt.subplot(1, 3, 3, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, lc in enumerate([loadcases[1], loadcases[2], loadcases[4]]):  # 4, 8, 16 knots
     torques = []
     for rpm in rpm_range:
         _, _, torque = test_propeller_power_from_rpm(propeller_wageningen, lc, rpm)
         if torque is not None:
-            torques.append(torque / 1000)  # Convert to kN⋅m
+            torques.append(torque)
         else:
             torques.append(np.nan)
-    ax3_6.plot(rpm_range, torques, label=f"{lc.speed * MS_TO_KNOTS:.2f} knots", linewidth=2)
-
-ax3_6.set_xlabel("RPM")
-ax3_6.set_ylabel("Torque [kN⋅m]")
-ax3_6.set_title("Torque vs RPM (Wageningen B)")
-ax3_6.legend()
-ax3_6.grid(True, alpha=0.3)
+    ax3_3c.plot(rpm_range, torques, label=f"{lc.speed * MS_TO_KNOTS:.2f} knots", linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax3_3c.set_xlabel("RPM", fontsize=11, color=PRIMARY_TXT)
+ax3_3c.set_ylabel("Torque [kN m]", fontsize=11, color=PRIMARY_TXT)
+ax3_3c.set_title("Wageningen B: Torque vs RPM", fontsize=12, fontweight='bold', color=PRIMARY_TXT)
+ax3_3c.legend(fontsize=10, frameon=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax3_3c.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax3_3c.spines.values():
+    spine.set_color(ACCENT)
+ax3_3c.tick_params(colors=PRIMARY_TXT)
 
 plt.tight_layout()
-plt.savefig("results/test_results_comprehensive_group3_power_rpm_torque.png", dpi=150, bbox_inches='tight')
-print("  Saved: results/test_results_comprehensive_group3_power_rpm_torque.png")
+plt.savefig("results/test_results_comprehensive_group3_wageningen_rpm_variation.png", dpi=150, bbox_inches='tight', facecolor=PRIMARY_BG)
+print("  Saved: results/test_results_comprehensive_group3_wageningen_rpm_variation.png")
 plt.close()
 
 # ============================================================================
@@ -1321,46 +1411,83 @@ plt.close()
 
 print("\nGenerating Group 4: Efficiency and Performance Curves")
 
-fig4 = plt.figure(figsize=(18, 12))
+# Plot 4.1: Custom Curves - Combined KT/KQ/Efficiency view
+fig4_2 = plt.figure(figsize=(12, 8), facecolor=PRIMARY_BG)
+if not df_curves.empty and not df_efficiency.empty:
+    custom_curves = df_curves[df_curves["propeller"] == "Custom Curves"]
+    custom_eff = df_efficiency[df_efficiency["propeller"] == "Custom Curves"]
+    
+    ax4_2 = plt.subplot(1, 1, 1, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+    ax4_2_twin = ax4_2.twinx()
+    
+    line1 = ax4_2.plot(custom_curves["J"], custom_curves["KT"], 
+                      label='KT', linewidth=2.5, linestyle='-', color=ACCENT)
+    line2 = ax4_2.plot(custom_curves["J"], 10 * custom_curves["KQ"], 
+                      label='10xKQ', linewidth=2.5, linestyle='--', color=ALBATROS_COLORS["graphic"]["red"])
+    line3 = ax4_2_twin.plot(custom_eff["J"], custom_eff["efficiency"], 
+                           label='eta_o', linewidth=2.5, linestyle=':', color=ALBATROS_COLORS["graphic"]["green"])
+    
+    ax4_2.set_xlabel("Advance Coefficient J [-]", fontsize=12, color=PRIMARY_TXT)
+    ax4_2.set_ylabel("KT [-] and 10xKQ [-]", fontsize=12, color=PRIMARY_TXT)
+    ax4_2.set_ylim(bottom=0)
+    ax4_2_twin.set_ylabel("Efficiency eta_o [-]", fontsize=12, color=ALBATROS_COLORS["graphic"]["green"])
+    ax4_2_twin.set_ylim(bottom=0)
+    ax4_2_twin.tick_params(axis='y', labelcolor=ALBATROS_COLORS["graphic"]["green"])
+    ax4_2.set_title("Custom Curves: KT, 10xKQ (left) and eta_o (right) vs J", fontsize=14, fontweight='bold', color=PRIMARY_TXT)
+    
+    lines1, labels1 = ax4_2.get_legend_handles_labels()
+    lines2, labels2 = ax4_2_twin.get_legend_handles_labels()
+    ax4_2.legend(lines1 + lines2, labels1 + labels2, loc='upper left', fontsize=11, frameon=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+    ax4_2.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+    for spine in ax4_2.spines.values():
+        spine.set_color(ACCENT)
+    ax4_2.tick_params(colors=PRIMARY_TXT)
+    
+    plt.tight_layout()
+    plt.savefig("results/test_results_comprehensive_group4_custom_curves.png", dpi=150, bbox_inches='tight', facecolor=PRIMARY_BG)
+    print("  Saved: results/test_results_comprehensive_group4_custom_curves.png")
+    plt.close()
 
-# Plot 4.1: Performance Curves - KT vs J
-ax4_1 = plt.subplot(2, 3, 1)
-if not df_curves.empty:
-    for prop_name in df_curves["propeller"].unique():
-        prop_data = df_curves[df_curves["propeller"] == prop_name]
-        ax4_1.plot(prop_data["J"], prop_data["KT"], label=f"{prop_name}", linewidth=2)
-ax4_1.set_xlabel("Advance Coefficient J [-]")
-ax4_1.set_ylabel("Thrust Coefficient KT [-]")
-ax4_1.set_title("KT vs J - All Propeller Models")
-ax4_1.legend()
-ax4_1.grid(True, alpha=0.3)
-
-# Plot 4.2: Performance Curves - KQ vs J
-ax4_2 = plt.subplot(2, 3, 2)
-if not df_curves.empty:
-    for prop_name in df_curves["propeller"].unique():
-        prop_data = df_curves[df_curves["propeller"] == prop_name]
-        ax4_2.plot(prop_data["J"], prop_data["KQ"], label=f"{prop_name}", linewidth=2)
-ax4_2.set_xlabel("Advance Coefficient J [-]")
-ax4_2.set_ylabel("Torque Coefficient KQ [-]")
-ax4_2.set_title("KQ vs J - All Propeller Models")
-ax4_2.legend()
-ax4_2.grid(True, alpha=0.3)
-
-# Plot 4.3: Efficiency vs J
-ax4_3 = plt.subplot(2, 3, 3)
-if not df_efficiency.empty:
-    for prop_name in df_efficiency["propeller"].unique():
-        prop_data = df_efficiency[df_efficiency["propeller"] == prop_name]
-        ax4_3.plot(prop_data["J"], prop_data["efficiency"], label=prop_name, linewidth=2)
-ax4_3.set_xlabel("Advance Coefficient J [-]")
-ax4_3.set_ylabel("Efficiency η₀ [-]")
-ax4_3.set_title("Propeller Efficiency vs J - All Models")
-ax4_3.legend()
-ax4_3.grid(True, alpha=0.3)
+# Plot 4.3: Wageningen B - Combined KT/KQ/Efficiency view
+fig4_3 = plt.figure(figsize=(12, 8), facecolor=PRIMARY_BG)
+if not df_curves.empty and not df_efficiency.empty:
+    wageningen_curves = df_curves[df_curves["propeller"] == "Wageningen B"]
+    wageningen_eff = df_efficiency[df_efficiency["propeller"] == "Wageningen B"]
+    
+    ax4_3 = plt.subplot(1, 1, 1, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+    ax4_3_twin = ax4_3.twinx()
+    
+    line1 = ax4_3.plot(wageningen_curves["J"], wageningen_curves["KT"], 
+                      label='KT', linewidth=2.5, linestyle='-', color=ACCENT)
+    line2 = ax4_3.plot(wageningen_curves["J"], 10 * wageningen_curves["KQ"], 
+                      label='10xKQ', linewidth=2.5, linestyle='--', color=ALBATROS_COLORS["graphic"]["red"])
+    line3 = ax4_3_twin.plot(wageningen_eff["J"], wageningen_eff["efficiency"], 
+                           label='eta_o', linewidth=2.5, linestyle=':', color=ALBATROS_COLORS["graphic"]["green"])
+    
+    ax4_3.set_xlabel("Advance Coefficient J [-]", fontsize=12, color=PRIMARY_TXT)
+    ax4_3.set_ylabel("KT [-] and 10xKQ [-]", fontsize=12, color=PRIMARY_TXT)
+    ax4_3.set_ylim(bottom=0)
+    ax4_3_twin.set_ylabel("Efficiency eta_o [-]", fontsize=12, color=ALBATROS_COLORS["graphic"]["green"])
+    ax4_3_twin.set_ylim(bottom=0)
+    ax4_3_twin.tick_params(axis='y', labelcolor=ALBATROS_COLORS["graphic"]["green"])
+    ax4_3.set_title("Wageningen B: KT, 10xKQ (left) and eta_o (right) vs J", fontsize=14, fontweight='bold', color=PRIMARY_TXT)
+    
+    lines1, labels1 = ax4_3.get_legend_handles_labels()
+    lines2, labels2 = ax4_3_twin.get_legend_handles_labels()
+    ax4_3.legend(lines1 + lines2, labels1 + labels2, loc='upper left', fontsize=11, frameon=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+    ax4_3.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+    for spine in ax4_3.spines.values():
+        spine.set_color(ACCENT)
+    ax4_3.tick_params(colors=PRIMARY_TXT)
+    
+    plt.tight_layout()
+    plt.savefig("results/test_results_comprehensive_group4_wageningen_combined.png", dpi=150, bbox_inches='tight', facecolor=PRIMARY_BG)
+    print("  Saved: results/test_results_comprehensive_group4_wageningen_combined.png")
+    plt.close()
 
 # Plot 4.4: Variable vs Constant Efficiency vs Speed
-ax4_4 = plt.subplot(2, 3, 4)
+fig4_4 = plt.figure(figsize=(12, 8), facecolor=PRIMARY_BG)
+ax4_4 = plt.subplot(1, 1, 1, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
 eta_const = []
 eta_var = []
 
@@ -1369,60 +1496,45 @@ for speed_ms in speeds_ms:
     eta_const.append(propeller_simple.eta_D_at_speed(lc))
     eta_var.append(propeller_variable_eta.eta_D_at_speed(lc))
 
-ax4_4.plot(speeds_knots, eta_const, label="Constant", linewidth=2, marker='o')
-ax4_4.plot(speeds_knots, eta_var, label="Variable", linewidth=2, marker='o')
-ax4_4.set_xlabel("Speed [knots]")
-ax4_4.set_ylabel("Delivered Power Efficiency")
-ax4_4.set_title("Constant vs Variable Efficiency vs Speed")
-ax4_4.legend()
-ax4_4.grid(True, alpha=0.3)
+ax4_4.plot(speeds_knots, eta_const, label="Constant", linewidth=2.5, color=COLORWAY[0])
+ax4_4.plot(speeds_knots, eta_var, label="Variable", linewidth=2.5, color=COLORWAY[1])
+ax4_4.set_xlabel("Speed [knots]", fontsize=12, color=PRIMARY_TXT)
+ax4_4.set_ylabel("Delivered Power Efficiency", fontsize=12, color=PRIMARY_TXT)
+ax4_4.set_title("Constant vs Variable Efficiency vs Speed", fontsize=14, fontweight='bold', color=PRIMARY_TXT)
+ax4_4.legend(fontsize=11, frameon=True, fancybox=True, shadow=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax4_4.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax4_4.spines.values():
+    spine.set_color(ACCENT)
+ax4_4.tick_params(colors=PRIMARY_TXT)
+plt.tight_layout()
+plt.savefig("results/test_results_comprehensive_group4_efficiency_comparison.png", dpi=150, bbox_inches='tight', facecolor=PRIMARY_BG)
+print("  Saved: results/test_results_comprehensive_group4_efficiency_comparison.png")
+plt.close()
 
-# Plot 4.5: Efficiency comparison across propeller models
-ax4_5 = plt.subplot(2, 3, 5)
+# Plot 4.5: Optimal Efficiency Points Comparison
+fig4_5 = plt.figure(figsize=(12, 8), facecolor=PRIMARY_BG)
+ax4_5 = plt.subplot(1, 1, 1, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
 if not df_efficiency.empty:
-    for prop_name in df_efficiency["propeller"].unique():
+    for i, prop_name in enumerate(df_efficiency["propeller"].unique()):
         prop_data = df_efficiency[df_efficiency["propeller"] == prop_name]
         max_eff_idx = prop_data["efficiency"].idxmax()
         optimal_J = prop_data.loc[max_eff_idx, "J"]
         max_eff = prop_data.loc[max_eff_idx, "efficiency"]
-        ax4_5.scatter(optimal_J, max_eff, s=200, label=f"{prop_name}\n(J={optimal_J:.3f}, η={max_eff:.3f})")
-        ax4_5.plot(prop_data["J"], prop_data["efficiency"], alpha=0.3, linewidth=1)
-ax4_5.set_xlabel("Advance Coefficient J [-]")
-ax4_5.set_ylabel("Efficiency η₀ [-]")
-ax4_5.set_title("Optimal Efficiency Points")
-ax4_5.legend(fontsize=8)
-ax4_5.grid(True, alpha=0.3)
-
-# Plot 4.6: KT/KQ/Efficiency combined view
-ax4_6 = plt.subplot(2, 3, 6)
-if not df_curves.empty and not df_efficiency.empty:
-    prop_name = "Wageningen B"
-    if prop_name in df_curves["propeller"].unique():
-        prop_curves = df_curves[df_curves["propeller"] == prop_name]
-        prop_eff = df_efficiency[df_efficiency["propeller"] == prop_name]
-        
-        ax4_6_twin1 = ax4_6.twinx()
-        ax4_6_twin2 = ax4_6.twinx()
-        ax4_6_twin2.spines['right'].set_position(('outward', 60))
-        
-        line1 = ax4_6.plot(prop_curves["J"], prop_curves["KT"], 'b-', label='KT', linewidth=2)
-        line2 = ax4_6_twin1.plot(prop_curves["J"], prop_curves["KQ"], 'r-', label='KQ', linewidth=2)
-        line3 = ax4_6_twin2.plot(prop_eff["J"], prop_eff["efficiency"], 'g-', label='Efficiency', linewidth=2)
-        
-        ax4_6.set_xlabel("Advance Coefficient J [-]")
-        ax4_6.set_ylabel("KT [-]", color='b')
-        ax4_6_twin1.set_ylabel("KQ [-]", color='r')
-        ax4_6_twin2.set_ylabel("Efficiency η₀ [-]", color='g')
-        
-        lines = line1 + line2 + line3
-        labels = [l.get_label() for l in lines]
-        ax4_6.legend(lines, labels, loc='upper left')
-        ax4_6.set_title(f"KT, KQ, Efficiency vs J ({prop_name})")
-        ax4_6.grid(True, alpha=0.3)
-
+        ax4_5.scatter(optimal_J, max_eff, s=300, label=f"{prop_name}\n(J={optimal_J:.3f}, eta={max_eff:.3f})", 
+                     edgecolors=ACCENT, linewidth=2, color=COLORWAY[i % len(COLORWAY)])
+        ax4_5.plot(prop_data["J"], prop_data["efficiency"], alpha=0.3, linewidth=1.5, color=COLORWAY[i % len(COLORWAY)])
+ax4_5.set_xlabel("Advance Coefficient J [-]", fontsize=12, color=PRIMARY_TXT)
+ax4_5.set_ylabel("Efficiency eta_o [-]", fontsize=12, color=PRIMARY_TXT)
+ax4_5.set_ylim(bottom=0)
+ax4_5.set_title("Optimal Efficiency Points Comparison", fontsize=14, fontweight='bold', color=PRIMARY_TXT)
+ax4_5.legend(fontsize=10, frameon=True, fancybox=True, shadow=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax4_5.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax4_5.spines.values():
+    spine.set_color(ACCENT)
+ax4_5.tick_params(colors=PRIMARY_TXT)
 plt.tight_layout()
-plt.savefig("results/test_results_comprehensive_group4_efficiency_performance.png", dpi=150, bbox_inches='tight')
-print("  Saved: results/test_results_comprehensive_group4_efficiency_performance.png")
+plt.savefig("results/test_results_comprehensive_group4_optimal_efficiency.png", dpi=150, bbox_inches='tight', facecolor=PRIMARY_BG)
+print("  Saved: results/test_results_comprehensive_group4_optimal_efficiency.png")
 plt.close()
 
 # ============================================================================
@@ -1431,34 +1543,12 @@ plt.close()
 
 print("\nGenerating Group 5: Powering Mode Comparisons")
 
-fig5 = plt.figure(figsize=(18, 12))
-
-# Plot 5.1: Fuel Consumption vs Thrust - All powering modes
-ax5_1 = plt.subplot(2, 3, 1)
-lc = loadcases[2]  # 8 knots
 thrusts = np.linspace(50, 500, 20)
 
-for powering_name, powering in [("DD", powering_dd),
-                               ("DE", powering_de),
-                               ("PTI/PTO", powering_pti_pto)]:
-    fcs = []
-    for thrust_kn in thrusts:
-        try:
-            result = test_powering_flow(propeller_wageningen, powering, lc, thrust_kn)
-            fcs.append(result["total_fc_kg_h"])
-        except:
-            fcs.append(np.nan)
-    ax5_1.plot(thrusts, fcs, label=powering_name, marker='o', markersize=3, linewidth=2)
-
-ax5_1.set_xlabel("Thrust [kN]")
-ax5_1.set_ylabel("Fuel Consumption [kg/h]")
-ax5_1.set_title(f"Fuel Consumption vs Thrust ({lc.speed * MS_TO_KNOTS:.2f} knots)")
-ax5_1.legend()
-ax5_1.grid(True, alpha=0.3)
-
-# Plot 5.2: Fuel Consumption vs Thrust - Different speeds (DD mode)
-ax5_2 = plt.subplot(2, 3, 2)
-for lc in [loadcases[1], loadcases[2], loadcases[4]]:  # 4, 8, 16 knots
+# Plot 5.1: DD Mode - Fuel Consumption vs Thrust at different speeds
+fig5_1 = plt.figure(figsize=(12, 8), facecolor=PRIMARY_BG)
+ax5_1 = plt.subplot(1, 1, 1, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, lc in enumerate([loadcases[1], loadcases[2], loadcases[4]]):  # 4, 8, 16 knots
     fcs = []
     for thrust_kn in thrusts:
         try:
@@ -1466,19 +1556,98 @@ for lc in [loadcases[1], loadcases[2], loadcases[4]]:  # 4, 8, 16 knots
             fcs.append(result["total_fc_kg_h"])
         except:
             fcs.append(np.nan)
-    ax5_2.plot(thrusts, fcs, label=f"{lc.speed * MS_TO_KNOTS:.2f} knots", marker='o', markersize=3, linewidth=2)
-
-ax5_2.set_xlabel("Thrust [kN]")
-ax5_2.set_ylabel("Fuel Consumption [kg/h]")
-ax5_2.set_title("Fuel Consumption vs Thrust (DD Mode)")
-ax5_2.legend()
-ax5_2.grid(True, alpha=0.3)
-
-# Additional plots can be added here following the same pattern...
-
+    ax5_1.plot(thrusts, fcs, label=f"{lc.speed * MS_TO_KNOTS:.2f} knots", linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax5_1.set_xlabel("Thrust [kN]", fontsize=12, color=PRIMARY_TXT)
+ax5_1.set_ylabel("Fuel Consumption [kg/h]", fontsize=12, color=PRIMARY_TXT)
+ax5_1.set_title("DD Mode: Fuel Consumption vs Thrust", fontsize=14, fontweight='bold', color=PRIMARY_TXT)
+ax5_1.legend(fontsize=11, frameon=True, fancybox=True, shadow=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax5_1.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax5_1.spines.values():
+    spine.set_color(ACCENT)
+ax5_1.tick_params(colors=PRIMARY_TXT)
 plt.tight_layout()
-plt.savefig("results/test_results_comprehensive_group5_powering_modes.png", dpi=150, bbox_inches='tight')
-print("  Saved: results/test_results_comprehensive_group5_powering_modes.png")
+plt.savefig("results/test_results_comprehensive_group5_dd_mode.png", dpi=150, bbox_inches='tight', facecolor=PRIMARY_BG)
+print("  Saved: results/test_results_comprehensive_group5_dd_mode.png")
+plt.close()
+
+# Plot 5.2: DE Mode - Fuel Consumption vs Thrust at different speeds
+fig5_2 = plt.figure(figsize=(12, 8), facecolor=PRIMARY_BG)
+ax5_2 = plt.subplot(1, 1, 1, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, lc in enumerate([loadcases[1], loadcases[2], loadcases[4]]):  # 4, 8, 16 knots
+    fcs = []
+    for thrust_kn in thrusts:
+        try:
+            result = test_powering_flow(propeller_wageningen, powering_de, lc, thrust_kn)
+            fcs.append(result["total_fc_kg_h"])
+        except:
+            fcs.append(np.nan)
+    ax5_2.plot(thrusts, fcs, label=f"{lc.speed * MS_TO_KNOTS:.2f} knots", linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax5_2.set_xlabel("Thrust [kN]", fontsize=12, color=PRIMARY_TXT)
+ax5_2.set_ylabel("Fuel Consumption [kg/h]", fontsize=12, color=PRIMARY_TXT)
+ax5_2.set_title("DE Mode: Fuel Consumption vs Thrust", fontsize=14, fontweight='bold', color=PRIMARY_TXT)
+ax5_2.legend(fontsize=11, frameon=True, fancybox=True, shadow=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax5_2.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax5_2.spines.values():
+    spine.set_color(ACCENT)
+ax5_2.tick_params(colors=PRIMARY_TXT)
+plt.tight_layout()
+plt.savefig("results/test_results_comprehensive_group5_de_mode.png", dpi=150, bbox_inches='tight', facecolor=PRIMARY_BG)
+print("  Saved: results/test_results_comprehensive_group5_de_mode.png")
+plt.close()
+
+# Plot 5.3: PTI/PTO Mode - Fuel Consumption vs Thrust at different speeds
+fig5_3 = plt.figure(figsize=(12, 8), facecolor=PRIMARY_BG)
+ax5_3 = plt.subplot(1, 1, 1, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+for i, lc in enumerate([loadcases[1], loadcases[2], loadcases[4]]):  # 4, 8, 16 knots
+    fcs = []
+    for thrust_kn in thrusts:
+        try:
+            result = test_powering_flow(propeller_wageningen, powering_pti_pto, lc, thrust_kn)
+            fcs.append(result["total_fc_kg_h"])
+        except:
+            fcs.append(np.nan)
+    ax5_3.plot(thrusts, fcs, label=f"{lc.speed * MS_TO_KNOTS:.2f} knots", linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+ax5_3.set_xlabel("Thrust [kN]", fontsize=12, color=PRIMARY_TXT)
+ax5_3.set_ylabel("Fuel Consumption [kg/h]", fontsize=12, color=PRIMARY_TXT)
+ax5_3.set_title("PTI/PTO Mode: Fuel Consumption vs Thrust", fontsize=14, fontweight='bold', color=PRIMARY_TXT)
+ax5_3.legend(fontsize=11, frameon=True, fancybox=True, shadow=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax5_3.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax5_3.spines.values():
+    spine.set_color(ACCENT)
+ax5_3.tick_params(colors=PRIMARY_TXT)
+plt.tight_layout()
+plt.savefig("results/test_results_comprehensive_group5_ptipto_mode.png", dpi=150, bbox_inches='tight', facecolor=PRIMARY_BG)
+print("  Saved: results/test_results_comprehensive_group5_ptipto_mode.png")
+plt.close()
+
+# Plot 5.4: Powering Mode Comparison at fixed speed (8 knots)
+fig5_4 = plt.figure(figsize=(12, 8), facecolor=PRIMARY_BG)
+ax5_4 = plt.subplot(1, 1, 1, facecolor=ALBATROS_COLORS["secondary"]["off_white"])
+lc = loadcases[2]  # 8 knots
+
+for i, (powering_name, powering) in enumerate([("DD", powering_dd),
+                               ("DE", powering_de),
+                               ("PTI/PTO", powering_pti_pto)]):
+    fcs = []
+    for thrust_kn in thrusts:
+        try:
+            result = test_powering_flow(propeller_wageningen, powering, lc, thrust_kn)
+            fcs.append(result["total_fc_kg_h"])
+        except:
+            fcs.append(np.nan)
+    ax5_4.plot(thrusts, fcs, label=powering_name, linewidth=2.5, color=COLORWAY[i % len(COLORWAY)])
+
+ax5_4.set_xlabel("Thrust [kN]", fontsize=12, color=PRIMARY_TXT)
+ax5_4.set_ylabel("Fuel Consumption [kg/h]", fontsize=12, color=PRIMARY_TXT)
+ax5_4.set_title(f"Powering Mode Comparison ({lc.speed * MS_TO_KNOTS:.2f} knots)", fontsize=14, fontweight='bold', color=PRIMARY_TXT)
+ax5_4.legend(fontsize=11, frameon=True, fancybox=True, shadow=True, facecolor=ALBATROS_COLORS["secondary"]["off_white"], edgecolor=ACCENT)
+ax5_4.grid(True, alpha=0.3, linestyle='--', color=ALBATROS_COLORS["secondary"]["turquoise"])
+for spine in ax5_4.spines.values():
+    spine.set_color(ACCENT)
+ax5_4.tick_params(colors=PRIMARY_TXT)
+plt.tight_layout()
+plt.savefig("results/test_results_comprehensive_group5_mode_comparison.png", dpi=150, bbox_inches='tight', facecolor=PRIMARY_BG)
+print("  Saved: results/test_results_comprehensive_group5_mode_comparison.png")
 plt.close()
 
 print("\nAll visualization groups saved successfully!")

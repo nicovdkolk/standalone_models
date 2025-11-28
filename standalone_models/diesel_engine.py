@@ -2,6 +2,32 @@ from typing import Union, Dict
 from scipy.interpolate import interp1d
 
 
+# Fuel type definitions with Lower Heating Value (LHV) and density
+# Based on typical marine fuel properties
+FUEL_PROPERTIES = {
+    "MGO": {
+        "lhv": 42.7,  # MJ/kg (representative value from 42-43.5 range)
+        "density": 850.0  # kg/m³ (representative value from 820-890 range)
+    },
+    "HFO": {
+        "lhv": 40.0,  # MJ/kg (representative value from 39-41 range)
+        "density": 990.0  # kg/m³ (representative value from 975-1010 range)
+    },
+    "LNG": {
+        "lhv": 49.0,  # MJ/kg (representative value from 48-50 range)
+        "density": 450.0  # kg/m³ (representative value from 410-500 range)
+    },
+    "Methanol": {
+        "lhv": 20.5,  # MJ/kg (representative value from 20-21 range)
+        "density": 790.0  # kg/m³
+    },
+    "Ammonia": {
+        "lhv": 18.5,  # MJ/kg (representative value from 18-19 range)
+        "density": 680.0  # kg/m³ (representative value)
+    }
+}
+
+
 class DieselEngine:
     """
     Diesel engine model for fuel consumption calculation at a given load percentage.
@@ -44,6 +70,9 @@ class DieselEngine:
             sfoc: Union[Dict, float] = None,
             mcr: float = None,
             csr: float = None,
+            fuel_type: str = "MGO",
+            fuel_lhv: float = None,
+            fuel_density: float = None,
     ):
         # Determine CSR and SFOC curve configuration based on engine rating.
         self.mcr = mcr #this is the only mandatory parameter
@@ -100,21 +129,89 @@ class DieselEngine:
             self.sfoc["SFOC"], kind='cubic',
             fill_value=(self.sfoc["SFOC"][0], self.sfoc["SFOC"][-1]), bounds_error=False)
 
+        # Handle fuel properties
+        # Validate fuel_type
+        if fuel_type not in FUEL_PROPERTIES:
+            raise ValueError(f"Unknown fuel_type '{fuel_type}'. Valid options: {list(FUEL_PROPERTIES.keys())}")
+        
+        # Get default fuel properties from fuel_type
+        default_props = FUEL_PROPERTIES[fuel_type]
+        
+        # Use provided values or defaults, with validation
+        self.fuel_lhv = fuel_lhv if fuel_lhv is not None else default_props["lhv"]
+        self.fuel_density = fuel_density if fuel_density is not None else default_props["density"]
+        self.fuel_type = fuel_type
+        
+        # Validate fuel properties
+        if self.fuel_lhv <= 0:
+            raise ValueError("fuel_lhv must be positive")
+        if self.fuel_density <= 0:
+            raise ValueError("fuel_density must be positive")
+
 
     def sfoc_at_load(self, percentage_mcr: float) -> float:
         # Return SFOC by interpolating along the %MCR curve.
         return self.sfoc_interpolator(percentage_mcr)
 
+    def engine_efficiency(self, percentage_mcr: float = None, brake_power: float = None) -> float:
+        """
+        Calculate engine efficiency η_eng at given load.
+        
+        η_eng = 3.6 / (SFOC · H_L) = 3600 / (SFOC · H_L · 1000)
+        
+        where:
+        - SFOC is in kg/kWh
+        - H_L (LHV) is in MJ/kg
+        - The factor accounts for unit conversion: 1 kWh = 3.6 MJ, 1 MJ/s = 1000 kW
+        - Result is dimensionless (0-1)
+        
+        Derivation:
+        - P_B [kW] = η_eng · ṁ_f [kg/s] · H_L [MJ/kg] · 1000 [kW/(MJ/s)]
+        - SFOC = ṁ_f [kg/h] / P_B [kW] = (ṁ_f [kg/s] · 3600) / P_B [kW]
+        - Rearranging: ṁ_f = SFOC · P_B / 3600
+        - Substituting: P_B = η_eng · (SFOC · P_B / 3600) · H_L · 1000
+        - Simplifying: η_eng = 3600 / (SFOC · H_L · 1000) = 3.6 / (SFOC · H_L)
+        
+        Either percentage_mcr or brake_power must be provided.
+        If brake_power is provided, percentage_mcr is calculated from it.
+        
+        Parameters:
+        -----------
+        percentage_mcr : float, optional
+            Load as percentage of MCR [0-1.0]
+        brake_power : float, optional
+            Brake power [kW] (used to calculate percentage_mcr if provided)
+            
+        Returns:
+        --------
+        float
+            Engine efficiency η_eng [dimensionless, 0-1]
+        """
+        if percentage_mcr is None:
+            if brake_power is None:
+                raise ValueError("Either percentage_mcr or brake_power must be provided")
+            if self.mcr is None:
+                raise ValueError("MCR must be set to calculate efficiency from brake_power")
+            percentage_mcr = brake_power / self.mcr
+        
+        sfoc = self.sfoc_at_load(percentage_mcr)  # kg/kWh
+        # η_eng = 3.6 / (SFOC · H_L)
+        # Accounts for: SFOC [kg/kWh], H_L [MJ/kg], and unit conversion (1 kWh = 3.6 MJ, 1 MJ/s = 1000 kW)
+        efficiency = 3.6 / (sfoc * self.fuel_lhv)
+        return efficiency
+
 
     def fuel_consumption(self, brake_power: float) -> float:
         """
-        Calculate fuel consumption for given brake power.
-        Fuel consumption is limited to positive values.
-
+        Calculate fuel consumption for given brake power P_B.
+        
+        Uses SFOC (Specific Fuel Oil Consumption) directly:
+        ṁ_f [kg/h] = SFOC [kg/kWh] · P_B [kW]
+        
         Parameters:
         -----------
         brake_power : float
-            Brake power [kW]
+            Brake power P_B [kW] - mechanical power at engine crankshaft
 
         Returns:
         --------
@@ -122,7 +219,76 @@ class DieselEngine:
             Fuel consumption [kg/h]
         """
         # Convert brake power and interpolated SFOC into hourly fuel use.
-        return max(0, self.sfoc_at_load(brake_power / self.mcr) * brake_power)
+        return self.sfoc_at_load(brake_power / self.mcr) * brake_power
+
+    def fuel_consumption_mass_flow(self, brake_power: float) -> float:
+        """
+        Calculate fuel mass flow rate for given brake power P_B.
+        
+        Parameters:
+        -----------
+        brake_power : float
+            Brake power P_B [kWm] - mechanical power at engine crankshaft
+
+        Returns:
+        --------
+        float
+            Fuel mass flow rate [kg/s]
+        """
+        # Convert hourly consumption to mass flow rate
+        return self.fuel_consumption(brake_power) / 3600.0
+
+    def fuel_consumption_volumetric(self, brake_power: float) -> float:
+        """
+        Calculate volumetric fuel flow rate for given brake power P_B.
+        
+        Parameters:
+        -----------
+        brake_power : float
+            Brake power P_B [kWm] - mechanical power at engine crankshaft
+
+        Returns:
+        --------
+        float
+            Volumetric fuel flow rate [m³/h]
+        """
+        # Volumetric flow = mass flow / density
+        mass_flow_kg_per_h = self.fuel_consumption(brake_power)
+        return mass_flow_kg_per_h / self.fuel_density
+
+    def chemical_energy_rate(self, brake_power: float, unit: str = "kW") -> float:
+        """
+        Calculate chemical energy rate Ė_fuel for given brake power P_B.
+        
+        Ė_fuel = ṁ_f · H_L
+        
+        where:
+        - ṁ_f is fuel mass flow rate [kg/s]
+        - H_L is lower heating value [MJ/kg]
+        - Result is in MJ/s or kW (1 MJ/s = 1000 kW)
+        
+        Parameters:
+        -----------
+        brake_power : float
+            Brake power P_B [kWm] - mechanical power at engine crankshaft
+        unit : str, optional
+            Output unit: "kW" (default) or "MJ/s"
+            
+        Returns:
+        --------
+        float
+            Chemical energy rate [kW] or [MJ/s] depending on unit parameter
+        """
+        mass_flow_kg_per_s = self.fuel_consumption_mass_flow(brake_power)
+        energy_rate_mj_per_s = mass_flow_kg_per_s * self.fuel_lhv
+        
+        if unit == "kW":
+            # Convert MJ/s to kW: 1 MJ/s = 1000 kW
+            return energy_rate_mj_per_s * 1000.0
+        elif unit == "MJ/s":
+            return energy_rate_mj_per_s
+        else:
+            raise ValueError(f"Unknown unit '{unit}'. Valid options: 'kW', 'MJ/s'")
 
 
     def is_valid_load(self, brake_power: float) -> bool:
@@ -141,4 +307,4 @@ class DieselEngine:
             True if load is valid
         """
         # Confirm requested brake power sits within typical operational band.
-        return 0.15 <= brake_power <= self.mcr
+        return 0.15 * self.mcr <= brake_power <= self.mcr
