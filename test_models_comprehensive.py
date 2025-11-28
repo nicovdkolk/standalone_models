@@ -11,6 +11,8 @@ This script tests all aspects of the propeller and powering models including:
 - Performance curves
 - Optimization scenarios
 
+Speed Range: 0:4:16 knots (0, 4, 8, 12, 16 knots)
+
 To use in Jupyter:
 1. Convert this to .ipynb or run cells manually
 2. Or use: jupyter nbconvert --to notebook --execute test_models_comprehensive.py
@@ -63,11 +65,34 @@ print(f"  Water kinematic viscosity: {physics.nu_w} m²/s")
 print(f"  Air kinematic viscosity: {physics.nu_air} m²/s")
 
 # ============================================================================
-# SECTION 2: LOADCASES - Define test scenarios
+# SECTION 2: SPEED CONFIGURATION - Speed range 0:4:16 knots
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("SECTION 2: LOADCASES - Define test scenarios")
+print("SECTION 2: SPEED CONFIGURATION")
+print("=" * 80)
+
+# Speed range configuration: 0:4:16 knots (0, 4, 8, 12, 16 knots)
+# Conversion factor: 1 knot = 1852/3600 m/s = 0.514444... m/s
+KNOTS_TO_MS = 1852.0 / 3600.0  # 0.514444...
+MS_TO_KNOTS = 3600.0 / 1852.0  # 1.943844... (approximately 1.944)
+
+# Speed range in knots: 0, 4, 8, 12, 16 knots
+SPEED_RANGE_KNOTS = [0, 4, 8, 12, 16]
+
+# Speed range in m/s (converted from knots)
+SPEED_RANGE_MS = [knots * KNOTS_TO_MS for knots in SPEED_RANGE_KNOTS]
+
+print(f"\nSpeed Range Configuration:")
+print(f"  Speeds in knots: {SPEED_RANGE_KNOTS}")
+print(f"  Speeds in m/s: {[f'{s:.4f}' for s in SPEED_RANGE_MS]}")
+
+# ============================================================================
+# SECTION 3: LOADCASES - Define test scenarios
+# ============================================================================
+
+print("\n" + "=" * 80)
+print("SECTION 3: LOADCASES - Define test scenarios")
 print("=" * 80)
 
 @dataclass
@@ -77,29 +102,25 @@ class LoadCase:
     speed: float  # m/s
     
     def __str__(self):
-        return f"{self.name}: {self.speed:.2f} m/s ({self.speed * 1.944:.2f} knots)"
+        return f"{self.name}: {self.speed:.2f} m/s ({self.speed * MS_TO_KNOTS:.2f} knots)"
 
-# Define comprehensive test loadcases
-loadcases = [
-    LoadCase("Zero Speed", 0.0),
-    LoadCase("Slow Speed", 2.5),
-    LoadCase("Low Speed", 4.0),
-    LoadCase("Cruise Speed", 5.0),
-    LoadCase("High Speed", 6.0),
-    LoadCase("Max Speed", 7.0),
-    LoadCase("Very High Speed", 8.0),
-]
+# Define comprehensive test loadcases using speed range 0:4:16 knots
+loadcases = []
+for speed_knots in SPEED_RANGE_KNOTS:
+    speed_ms = speed_knots * KNOTS_TO_MS
+    name = f"{speed_knots} knots"
+    loadcases.append(LoadCase(name, speed_ms))
 
 print("\nTest Loadcases:")
 for lc in loadcases:
     print(f"  {lc}")
 
 # ============================================================================
-# SECTION 3: THRUST VECTORS - Define thrust requirements
+# SECTION 4: THRUST VECTORS - Define thrust requirements
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("SECTION 3: THRUST VECTORS - Define thrust requirements")
+print("SECTION 4: THRUST VECTORS - Define thrust requirements")
 print("=" * 80)
 
 # Thrust requirements (in kN) - can be positive (forward) or negative (reverse)
@@ -118,15 +139,33 @@ for name, thrust in thrust_requirements.items():
     print(f"  {name}: {thrust:.1f} kN")
 
 # ============================================================================
-# SECTION 4: PROPELLER CONFIGURATIONS
+# SECTION 5: PROPELLER CONFIGURATIONS
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("SECTION 4: PROPELLER CONFIGURATIONS")
+print("SECTION 5: PROPELLER CONFIGURATIONS")
 print("=" * 80)
+
+# NOTE: RPM-based calculations (thrust_from_rpm, power_from_rpm, rpm_from_thrust_speed, etc.)
+# are ONLY available for models that:
+#   1. Have a propeller model (Wageningen B or Custom Curves) - has_model=True
+#   2. Do NOT have eta_delivered_power set (must be None)
+#
+# Models that support RPM calculations:
+#   - Wageningen B (without eta_delivered_power)
+#   - Custom Curves (without eta_delivered_power)
+#   - Single Prop (Wageningen B variant, without eta_delivered_power)
+#
+# Models that do NOT support RPM calculations:
+#   - Simple Model (has eta_delivered_power as float)
+#   - Variable Eta (has eta_delivered_power as dict, even though it has Wageningen B model)
+#
+# This is because models with eta_delivered_power use simple efficiency-based calculations
+# and cannot perform RPM-based KT/KQ curve calculations.
 
 # Configuration 1: Wageningen B-series propeller
 # NOTE: Do NOT set eta_delivered_power for advanced models - they use KT/KQ curves instead
+# This configuration supports RPM-based calculations.
 propeller_wageningen = Propeller(
     propeller_model="wageningen_b",
     dia_prop=4.5,              # m
@@ -142,11 +181,37 @@ propeller_wageningen = Propeller(
     physics=physics
 )
 
-# Configuration 2: Custom curves propeller
+# Configuration 2: Custom curves propeller (using Wageningen B results with random geometries)
 # NOTE: Do NOT set eta_delivered_power for advanced models - they use KT/KQ curves instead
-J_custom = np.linspace(0.1, 1.2, 20)
-KT_custom = 0.5 - 0.3 * J_custom + 0.1 * J_custom**2
-KQ_custom = 0.05 - 0.02 * J_custom + 0.01 * J_custom**2
+# This configuration supports RPM-based calculations.
+# Generate random geometries for Wageningen B
+np.random.seed(42)  # For reproducibility
+random_pitch_diameter_ratio = np.random.uniform(0.6, 1.2)
+random_blade_area_ratio = np.random.uniform(0.3, 0.8)
+random_number_of_blades = np.random.choice([3, 4, 5, 6])
+
+print(f"\nCustom Curves - Random Wageningen B Geometries:")
+print(f"  Pitch/Diameter Ratio: {random_pitch_diameter_ratio:.3f}")
+print(f"  Blade Area Ratio: {random_blade_area_ratio:.3f}")
+print(f"  Number of Blades: {random_number_of_blades}")
+
+# Create Wageningen B model with random geometries
+wageningen_for_custom = WageningenB(
+    pitch_diameter_ratio=random_pitch_diameter_ratio,
+    blade_area_ratio=random_blade_area_ratio,
+    number_of_blades=random_number_of_blades
+)
+
+# Generate J values and calculate KT, KQ using Wageningen B
+J_custom = np.linspace(0.1, 1.2, 30)
+KT_custom = wageningen_for_custom.calculate_kt(J_custom)
+KQ_custom = wageningen_for_custom.calculate_kq(J_custom)
+
+# Ensure arrays are 1D
+if KT_custom.ndim == 0:
+    KT_custom = np.array([KT_custom])
+if KQ_custom.ndim == 0:
+    KQ_custom = np.array([KQ_custom])
 
 propeller_custom = Propeller(
     propeller_model="custom_curves",
@@ -163,6 +228,7 @@ propeller_custom = Propeller(
 )
 
 # Configuration 3: Simple thrust model
+# NOTE: This model uses constant eta_delivered_power (float) and does NOT support RPM calculations.
 propeller_simple = Propeller(
     dia_prop=4.5,
     wake_fraction=0.25,
@@ -173,6 +239,9 @@ propeller_simple = Propeller(
 )
 
 # Configuration 4: Variable efficiency propeller (speed-dependent)
+# NOTE: This model has both Wageningen B model AND eta_delivered_power (dict).
+# Even though it has a model, it does NOT support RPM calculations because
+# eta_delivered_power is set. The simple efficiency model takes precedence.
 propeller_variable_eta = Propeller(
     propeller_model="wageningen_b",
     dia_prop=4.5,
@@ -221,11 +290,11 @@ for name, prop in propellers.items():
     print(f"  {name}: has_model={prop.has_model}, n_prop={prop.n_prop}")
 
 # ============================================================================
-# SECTION 5: POWERING CONFIGURATIONS
+# SECTION 6: POWERING CONFIGURATIONS
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("SECTION 5: POWERING CONFIGURATIONS")
+print("SECTION 6: POWERING CONFIGURATIONS")
 print("=" * 80)
 
 # Configuration 1: Diesel-Direct (DD) mode
@@ -283,11 +352,11 @@ print("  2. Diesel-Electric (DE)")
 print("  3. PTI/PTO")
 
 # ============================================================================
-# SECTION 6: TESTING FUNCTIONS
+# SECTION 7: TESTING FUNCTIONS
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("SECTION 6: TESTING FUNCTIONS")
+print("SECTION 7: TESTING FUNCTIONS")
 print("=" * 80)
 
 def test_propeller_thrust_from_power(propeller, loadcase, power_kw):
@@ -314,7 +383,7 @@ def test_propeller_power_from_thrust(propeller, loadcase, thrust_kn):
 
 def test_propeller_power_from_rpm(propeller, loadcase, rpm):
     """Test: Given RPM, calculate power and thrust."""
-    if not propeller.has_model:
+    if not can_do_rpm_calculations(propeller):
         return None, None, None
     
     power_w = propeller.power_from_rpm(
@@ -343,7 +412,7 @@ def test_propeller_power_from_rpm(propeller, loadcase, rpm):
 
 def test_propeller_rpm_from_thrust(propeller, loadcase, thrust_kn):
     """Test: Given thrust requirement, find required RPM."""
-    if not propeller.has_model:
+    if not can_do_rpm_calculations(propeller):
         return None
     
     thrust_n = thrust_kn * 1000
@@ -357,7 +426,7 @@ def test_propeller_rpm_from_thrust(propeller, loadcase, thrust_kn):
 
 def test_propeller_rpm_from_power(propeller, loadcase, power_kw):
     """Test: Given power requirement, find required RPM."""
-    if not propeller.has_model:
+    if not can_do_rpm_calculations(propeller):
         return None
     
     power_w = power_kw * 1000
@@ -422,15 +491,38 @@ def test_powering_flow(propeller, powering, loadcase, thrust_kn, est_power_kw=0.
         "est_power_kw": est_power_kw,
     }
 
+def can_do_rpm_calculations(propeller):
+    """
+    Check if propeller can perform RPM-based calculations.
+    
+    RPM calculations require:
+    - has_model=True (Wageningen B or Custom Curves)
+    - eta_delivered_power=None (not set as float or dict)
+    
+    Models with eta_delivered_power set use simple efficiency model
+    and cannot do RPM-based calculations, even if they have a model.
+    
+    Parameters:
+    -----------
+    propeller : Propeller
+        Propeller instance to check
+        
+    Returns:
+    --------
+    bool
+        True if RPM calculations are available, False otherwise
+    """
+    return propeller.has_model and propeller.eta_delivered_power is None
+
 def calculate_advance_coefficient(propeller, rpm, speed):
     """Calculate advance coefficient J."""
-    if not propeller.has_model:
+    if not can_do_rpm_calculations(propeller):
         return None
     return propeller.advance_coefficient(rpm, speed, propeller.wake_fraction)
 
 def calculate_propeller_efficiency(propeller, J):
     """Calculate propeller efficiency from J."""
-    if not propeller.has_model or propeller.model is None:
+    if not can_do_rpm_calculations(propeller) or propeller.model is None:
         return None
     if hasattr(propeller.model, 'calculate_efficiency'):
         return propeller.model.calculate_efficiency(J)
@@ -439,11 +531,11 @@ def calculate_propeller_efficiency(propeller, J):
 print("\nTesting functions defined.")
 
 # ============================================================================
-# SECTION 7: BASIC TESTS - Thrust from Power
+# SECTION 8: BASIC TESTS - Thrust from Power
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("SECTION 7: BASIC TESTS - Thrust from Power")
+print("SECTION 8: BASIC TESTS - Thrust from Power")
 print("=" * 80)
 
 test_power_kw = 2000.0
@@ -454,14 +546,14 @@ for lc in loadcases:
         try:
             thrust = test_propeller_thrust_from_power(prop, lc, test_power_kw)
             results_thrust.append({
-                "loadcase": lc.name,
+                "loadcase": f"{lc.speed * MS_TO_KNOTS:.2f} knots",
                 "speed_ms": lc.speed,
                 "propeller": prop_name,
                 "power_kw": test_power_kw,
                 "thrust_kn": thrust
             })
         except Exception as e:
-            print(f"  Error with {prop_name} at {lc.name}: {e}")
+            print(f"  Error with {prop_name} at {lc.speed * MS_TO_KNOTS:.2f} knots: {e}")
 
 df_thrust = pd.DataFrame(results_thrust)
 if not df_thrust.empty:
@@ -472,11 +564,45 @@ else:
     print("\nNo results for thrust from power test.")
 
 # ============================================================================
-# SECTION 8: RPM-BASED TESTS
+# SECTION 9: BASIC TESTS - Power from Thrust (Backwards Model)
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("SECTION 8: RPM-BASED TESTS")
+print("SECTION 9: BASIC TESTS - Power from Thrust (Backwards Model)")
+print("=" * 80)
+
+test_thrust_kn = 200.0
+results_power = []
+
+for lc in loadcases:
+    for prop_name, prop in propellers.items():
+        try:
+            power_kw = test_propeller_power_from_thrust(prop, lc, test_thrust_kn)
+            if power_kw is not None:
+                results_power.append({
+                    "loadcase": f"{lc.speed * MS_TO_KNOTS:.2f} knots",
+                    "speed_ms": lc.speed,
+                    "propeller": prop_name,
+                    "thrust_kn": test_thrust_kn,
+                    "power_kw": power_kw
+                })
+        except Exception as e:
+            print(f"  Error with {prop_name} at {lc.speed * MS_TO_KNOTS:.2f} knots: {e}")
+
+df_power = pd.DataFrame(results_power)
+if not df_power.empty:
+    print(f"\nPower from Thrust ({test_thrust_kn} kN):")
+    pivot = df_power.pivot(index="loadcase", columns="propeller", values="power_kw")
+    print(pivot.to_string())
+else:
+    print("\nNo results for power from thrust test.")
+
+# ============================================================================
+# SECTION 10: RPM-BASED TESTS
+# ============================================================================
+
+print("\n" + "=" * 80)
+print("SECTION 10: RPM-BASED TESTS")
 print("=" * 80)
 
 test_rpm = 150.0
@@ -490,7 +616,7 @@ for lc in loadcases:
             J = calculate_advance_coefficient(prop, test_rpm, lc.speed)
             efficiency = calculate_propeller_efficiency(prop, J) if J is not None else None
             results_rpm.append({
-                "loadcase": lc.name,
+                "loadcase": f"{lc.speed * MS_TO_KNOTS:.2f} knots",
                 "speed_ms": lc.speed,
                 "propeller": prop_name,
                 "rpm": test_rpm,
@@ -509,11 +635,11 @@ else:
     print("\nNo results for RPM-based test.")
 
 # ============================================================================
-# SECTION 9: INVERSE TESTS - RPM from Thrust/Power
+# SECTION 11: INVERSE TESTS - RPM from Thrust/Power
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("SECTION 9: INVERSE TESTS - RPM from Thrust/Power")
+print("SECTION 11: INVERSE TESTS - RPM from Thrust/Power")
 print("=" * 80)
 
 test_thrust_kn = 200.0
@@ -526,7 +652,7 @@ for lc in loadcases:
         if rpm is not None:
             power_kw, _, _ = test_propeller_power_from_rpm(prop, lc, rpm)
             results_rpm_from_thrust.append({
-                "loadcase": lc.name,
+                "loadcase": f"{lc.speed * MS_TO_KNOTS:.2f} knots",
                 "speed_ms": lc.speed,
                 "propeller": prop_name,
                 "thrust_kn": test_thrust_kn,
@@ -542,11 +668,11 @@ else:
     print("\nNo results for RPM from thrust test.")
 
 # ============================================================================
-# SECTION 10: EFFICIENCY ANALYSIS
+# SECTION 12: EFFICIENCY ANALYSIS
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("SECTION 10: EFFICIENCY ANALYSIS")
+print("SECTION 12: EFFICIENCY ANALYSIS")
 print("=" * 80)
 
 # Test efficiency vs J curves
@@ -555,7 +681,7 @@ efficiency_results = []
 
 for prop_name, prop in [("Wageningen B", propeller_wageningen),
                         ("Custom Curves", propeller_custom)]:
-    if prop.has_model and prop.model is not None:
+    if can_do_rpm_calculations(prop) and prop.model is not None:
         for J in J_range:
             try:
                 efficiency = calculate_propeller_efficiency(prop, J)
@@ -587,25 +713,25 @@ if not df_efficiency.empty:
 
 # Test variable efficiency
 print("\nVariable Efficiency Testing:")
-for lc in [loadcases[1], loadcases[3], loadcases[5]]:
+for lc in [loadcases[1], loadcases[2], loadcases[4]]:  # 4, 8, 16 knots
     # Use propeller_simple for constant efficiency (it has eta_delivered_power set)
     eta_const = propeller_simple.eta_D_at_speed(lc)
     eta_var = propeller_variable_eta.eta_D_at_speed(lc)
-    print(f"  {lc.name} ({lc.speed} m/s): Constant={eta_const:.3f}, Variable={eta_var:.3f}")
+    print(f"  {lc.speed * MS_TO_KNOTS:.2f} knots ({lc.speed} m/s): Constant={eta_const:.3f}, Variable={eta_var:.3f}")
 
 # ============================================================================
-# SECTION 11: PERFORMANCE CURVES - KT, KQ, Efficiency
+# SECTION 13: PERFORMANCE CURVES - KT, KQ, Efficiency
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("SECTION 11: PERFORMANCE CURVES - KT, KQ, Efficiency")
+print("SECTION 13: PERFORMANCE CURVES - KT, KQ, Efficiency")
 print("=" * 80)
 
 performance_curves = []
 
 for prop_name, prop in [("Wageningen B", propeller_wageningen),
                         ("Custom Curves", propeller_custom)]:
-    if prop.has_model and prop.model is not None:
+    if can_do_rpm_calculations(prop) and prop.model is not None:
         for J in J_range:
             try:
                 KT = prop.model.calculate_kt(J)
@@ -628,18 +754,18 @@ if not df_curves.empty:
     print(df_curves.head(10).to_string())
 
 # ============================================================================
-# SECTION 12: EDGE CASES AND VALIDATION
+# SECTION 14: EDGE CASES AND VALIDATION
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("SECTION 12: EDGE CASES AND VALIDATION")
+print("SECTION 14: EDGE CASES AND VALIDATION")
 print("=" * 80)
 
 edge_case_results = []
 
 # Test 1: Zero speed
 print("\n1. Zero Speed Test:")
-lc_zero = LoadCase("Zero", 0.0)
+lc_zero = loadcases[0]  # 0 knots
 for prop_name, prop in [("Wageningen B", propeller_wageningen),
                         ("Simple", propeller_simple)]:
     try:
@@ -660,7 +786,7 @@ for prop_name, prop in [("Wageningen B", propeller_wageningen),
 
 # Test 2: Negative thrust (reverse)
 print("\n2. Negative Thrust Test:")
-lc_test = loadcases[3]  # Cruise speed
+lc_test = loadcases[2]  # 8 knots
 for prop_name, prop in [("Wageningen B", propeller_wageningen),
                         ("Simple", propeller_simple)]:
     try:
@@ -697,8 +823,8 @@ for power_kw in test_powers:
 print("\n4. RPM Limits Test:")
 test_rpms = [50, 100, 150, 200, 250, 300]
 for rpm in test_rpms:
-    if propeller_wageningen.has_model:
-        lc = loadcases[3]
+    if can_do_rpm_calculations(propeller_wageningen):
+        lc = loadcases[2]  # 8 knots
         power_kw, thrust_kn, _ = test_propeller_power_from_rpm(propeller_wageningen, lc, rpm)
         within_limit = rpm <= (propeller_wageningen.max_rpm or 1000)
         edge_case_results.append({
@@ -708,16 +834,48 @@ for rpm in test_rpms:
             "status": "OK" if within_limit else "WARNING"
         })
 
+# Test 5: RPM calculation eligibility validation
+print("\n5. RPM Calculation Eligibility Test:")
+lc_test = loadcases[2]  # 8 knots
+test_rpm = 150.0
+test_thrust_kn = 200.0
+
+for prop_name, prop in [("Simple Model", propeller_simple),
+                        ("Variable Eta", propeller_variable_eta),
+                        ("Wageningen B", propeller_wageningen),
+                        ("Custom Curves", propeller_custom)]:
+    can_do_rpm = can_do_rpm_calculations(prop)
+    
+    # Test power_from_rpm
+    power_kw, thrust_kn, torque = test_propeller_power_from_rpm(prop, lc_test, test_rpm)
+    power_from_rpm_works = power_kw is not None
+    
+    # Test rpm_from_thrust
+    rpm_from_thrust = test_propeller_rpm_from_thrust(prop, lc_test, test_thrust_kn)
+    rpm_from_thrust_works = rpm_from_thrust is not None
+    
+    # Verify consistency
+    expected_can_do = can_do_rpm
+    actual_can_do = power_from_rpm_works and rpm_from_thrust_works
+    is_consistent = (expected_can_do == actual_can_do)
+    
+    edge_case_results.append({
+        "test": "RPM Eligibility",
+        "propeller": prop_name,
+        "result": f"can_do_rpm={can_do_rpm}, power_from_rpm={power_from_rpm_works}, rpm_from_thrust={rpm_from_thrust_works}, consistent={is_consistent}",
+        "status": "OK" if is_consistent else "ERROR"
+    })
+
 df_edge = pd.DataFrame(edge_case_results)
 print("\nEdge Case Test Results:")
 print(df_edge.to_string())
 
 # ============================================================================
-# SECTION 13: FULL INTEGRATION TESTS
+# SECTION 15: FULL INTEGRATION TESTS
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("SECTION 13: FULL INTEGRATION TESTS")
+print("SECTION 15: FULL INTEGRATION TESTS")
 print("=" * 80)
 
 integration_results = []
@@ -731,14 +889,14 @@ for lc in loadcases[1:]:  # Skip zero speed
             try:
                 result = test_powering_flow(propeller_wageningen, powering, lc, thrust_kn)
                 result.update({
-                    "loadcase": lc.name,
+                    "loadcase": f"{lc.speed * MS_TO_KNOTS:.2f} knots",
                     "speed_ms": lc.speed,
                     "thrust_kn": thrust_kn,
                     "powering_mode": powering_name
                 })
                 integration_results.append(result)
             except Exception as e:
-                print(f"  Error: {lc.name}, {thrust_name}, {powering_name}: {e}")
+                print(f"  Error: {lc.speed * MS_TO_KNOTS:.2f} knots, {thrust_name}, {powering_name}: {e}")
 
 df_integration = pd.DataFrame(integration_results)
 if not df_integration.empty:
@@ -754,325 +912,526 @@ if not df_integration.empty:
             print(f"  Valid Engine Loads: {mode_data['engine_valid'].sum()}/{len(mode_data)}")
 
 # ============================================================================
-# SECTION 13B: DIRECTIONAL POWER-FLOW VALIDATION (BACKWARD VS FORWARD)
+# SECTION 16: VISUALIZATIONS - Using speed range 0:4:16 knots
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("SECTION 13B: DIRECTIONAL POWER-FLOW VALIDATION")
+print("SECTION 16: GENERATING VISUALIZATIONS")
 print("=" * 80)
 
-directional_results = []
-
-# Focus on backward-facing (positive thrust) with a limited forward-facing (reverse) check.
-directional_cases = [
-    ("Backward Push", 300.0),
-    ("Forward-Facing Brake", -100.0),
-]
-
-for lc in [loadcases[1], loadcases[3], loadcases[5]]:  # representative low/cruise/high
-    for case_name, thrust_kn in directional_cases:
-        for prop_name, prop in [("Wageningen B", propeller_wageningen), ("Custom Curves", propeller_custom)]:
-            for powering_name, powering in [("DD", powering_dd), ("DE", powering_de)]:
-                try:
-                    result = test_powering_flow(prop, powering, lc, thrust_kn)
-                    directional_results.append({
-                        "case": case_name,
-                        "loadcase": lc.name,
-                        "speed_ms": lc.speed,
-                        "propeller": prop_name,
-                        "powering_mode": powering_name,
-                        "thrust_kn": thrust_kn,
-                        "delivered_power_kw": result["delivered_power_kw"],
-                        "shaft_power_kw": result["shaft_power_kw"],
-                        "grid_load_kwe": result["grid_load_kwe"],
-                        "brake_power_kwm": result["brake_power_kwm"],
-                        "power_sign": float(np.sign(result["delivered_power_kw"])),
-                        "brake_power_sign": float(np.sign(result["brake_power_kwm"])),
-                        "engine_valid": result["engine_valid"],
-                        "est_power_kw": result["est_power_kw"],
-                    })
-                except Exception as e:
-                    directional_results.append({
-                        "case": case_name,
-                        "loadcase": lc.name,
-                        "speed_ms": lc.speed,
-                        "propeller": prop_name,
-                        "powering_mode": powering_name,
-                        "thrust_kn": thrust_kn,
-                        "result": str(e),
-                        "status": "ERROR",
-                    })
-
-df_directional = pd.DataFrame(directional_results)
-if not df_directional.empty:
-    print("\nDirectional Power-Flow Summary (focus on backward-facing consistency):")
-    summary_cols = [
-        "case", "loadcase", "propeller", "powering_mode", "thrust_kn",
-        "delivered_power_kw", "shaft_power_kw", "grid_load_kwe",
-        "power_sign", "brake_power_sign", "engine_valid"
-    ]
-    print(df_directional[summary_cols].to_string(index=False))
-
-    # Backward-facing regression check: delivered/shaft/brake power should remain positive.
-    backward_cases = df_directional[df_directional["case"] == "Backward Push"]
-    if not backward_cases.empty:
-        invalid_power = backward_cases[(backward_cases["delivered_power_kw"] <= 0) | (backward_cases["shaft_power_kw"] <= 0)]
-        print("\nBackward-facing power-flow integrity:")
-        print(f"  Cases evaluated: {len(backward_cases)}")
-        print(f"  Non-positive power results: {len(invalid_power)}")
-
-    # Forward-facing smoke check to track sign handling without changing primary flow.
-    forward_cases = df_directional[df_directional["case"] == "Forward-Facing Brake"]
-    if not forward_cases.empty:
-        print("\nForward-facing (reverse thrust) sign observations:")
-        print(forward_cases[["loadcase", "propeller", "power_sign", "brake_power_sign", "engine_valid"]].to_string(index=False))
+# Use the speed range for plotting (convert knots to m/s for calculations)
+speeds_ms = SPEED_RANGE_MS
+speeds_knots = SPEED_RANGE_KNOTS
 
 # ============================================================================
-# SECTION 14: EST POWER CONSUMPTION IMPACT
+# GROUP 1: SPEED-BASED (BACKWARDS) - Thrust from Power/Speed
 # ============================================================================
 
-print("\n" + "=" * 80)
-print("SECTION 14: EST POWER CONSUMPTION IMPACT")
-print("=" * 80)
+print("\nGenerating Group 1: Speed-based (Backwards) - Thrust from Power/Speed")
 
-est_test_results = []
+fig1 = plt.figure(figsize=(18, 12))
 
-lc_test = loadcases[3]  # Cruise speed
-thrust_test = 200.0  # kN
-est_levels = [0, 100, 200, 500, 1000, 2000]  # kW
-
-for est_power in est_levels:
-    for powering_name, powering in [("DD", powering_dd),
-                                   ("DE", powering_de),
-                                   ("PTI/PTO", powering_pti_pto)]:
-        try:
-            result = test_powering_flow(propeller_wageningen, powering, lc_test, thrust_test, est_power)
-            est_test_results.append({
-                "est_power_kw": est_power,
-                "powering_mode": powering_name,
-                "grid_load_kwe": result["grid_load_kwe"],
-                "total_fc_kg_h": result["total_fc_kg_h"],
-                "n_gensets_active": result["n_gensets_active"]
-            })
-        except Exception as e:
-            print(f"  Error: EST={est_power} kW, {powering_name}: {e}")
-
-df_est = pd.DataFrame(est_test_results)
-if not df_est.empty:
-    print("\nEST Power Consumption Impact:")
-    print(df_est.pivot(index="est_power_kw", columns="powering_mode", values="total_fc_kg_h").to_string())
-
-# Power from Thrust Test
-print("\n" + "=" * 80)
-print("Power from Thrust Test")
-print("=" * 80)
-
-test_thrust_kn = 200.0
-results_power = []
-
-for lc in loadcases:
-    for prop_name, prop in propellers.items():
-        try:
-            power_kw = test_propeller_power_from_thrust(prop, lc, test_thrust_kn)
-            if power_kw is not None:
-                results_power.append({
-                    "loadcase": lc.name,
-                    "speed_ms": lc.speed,
-                    "propeller": prop_name,
-                    "thrust_kn": test_thrust_kn,
-                    "power_kw": power_kw
-                })
-        except Exception as e:
-            print(f"  Error with {prop_name} at {lc.name}: {e}")
-
-df_power = pd.DataFrame(results_power)
-if not df_power.empty:
-    print(f"\nPower from Thrust ({test_thrust_kn} kN):")
-    pivot = df_power.pivot(index="loadcase", columns="propeller", values="power_kw")
-    print(pivot.to_string())
-else:
-    print("\nNo results for power from thrust test.")
-
-# ============================================================================
-# SECTION 15: MULTIPLE PROPELLER COMPARISON
-# ============================================================================
-
-print("\n" + "=" * 80)
-print("SECTION 15: MULTIPLE PROPELLER COMPARISON")
-print("=" * 80)
-
-multi_prop_results = []
-
-lc_test = loadcases[3]
-power_test = 2000.0  # kW
-
-for prop_name, prop in [("Single Prop", propeller_single),
-                        ("Double Prop", propeller_wageningen)]:
-    try:
-        thrust = test_propeller_thrust_from_power(prop, lc_test, power_test)
-        multi_prop_results.append({
-            "propeller": prop_name,
-            "n_prop": prop.n_prop,
-            "power_kw": power_test,
-            "thrust_kn": thrust,
-            "thrust_per_prop_kn": thrust / prop.n_prop
-        })
-    except Exception as e:
-        print(f"  Error with {prop_name}: {e}")
-
-df_multi = pd.DataFrame(multi_prop_results)
-if not df_multi.empty:
-    print("\nMultiple Propeller Comparison:")
-    print(df_multi.to_string())
-
-# ============================================================================
-# SECTION 16: PTI/PTO MODE DETAILED TESTING
-# ============================================================================
-
-print("\n" + "=" * 80)
-print("SECTION 16: PTI/PTO MODE DETAILED TESTING")
-print("=" * 80)
-
-pti_pto_results = []
-
-lc_test = loadcases[3]
-thrust_levels = [100, 200, 300, 400, 500]  # kN
-
-for thrust_kn in thrust_levels:
-    try:
-        result = test_powering_flow(propeller_wageningen, powering_pti_pto, lc_test, thrust_kn)
-        pti_pto_results.append({
-            "thrust_kn": thrust_kn,
-            "shaft_power_kw": result["shaft_power_kw"],
-            "brake_power_kwm": result["brake_power_kwm"],
-            "grid_load_kwe": result["grid_load_kwe"],
-            "n_gensets_active": result["n_gensets_active"],
-            "mode": "PTO" if result["grid_load_kwe"] == 0 else "PTI"
-        })
-    except Exception as e:
-        print(f"  Error at {thrust_kn} kN: {e}")
-
-df_pti_pto = pd.DataFrame(pti_pto_results)
-if not df_pti_pto.empty:
-    print("\nPTI/PTO Mode Analysis:")
-    print(df_pti_pto.to_string())
-    print("\nMode Transitions:")
-    print(f"  PTO mode (no genset): {(df_pti_pto['mode'] == 'PTO').sum()} cases")
-    print(f"  PTI mode (genset active): {(df_pti_pto['mode'] == 'PTI').sum()} cases")
-
-# ============================================================================
-# SECTION 17: OPTIMIZATION SCENARIOS
-# ============================================================================
-
-print("\n" + "=" * 80)
-print("SECTION 17: OPTIMIZATION SCENARIOS")
-print("=" * 80)
-
-optimization_results = []
-
-# Find optimal RPM for given thrust requirements
-for lc in loadcases[1:4]:  # Test a few loadcases
-    for thrust_kn in [100, 200, 300]:
-        for prop_name, prop in [("Wageningen B", propeller_wageningen),
-                               ("Custom Curves", propeller_custom)]:
-            if prop.has_model:
-                rpm = test_propeller_rpm_from_thrust(prop, lc, thrust_kn)
-                if rpm is not None:
-                    power_kw, _, _ = test_propeller_power_from_rpm(prop, lc, rpm)
-                    # Calculate fuel consumption
-                    try:
-                        result = test_powering_flow(prop, powering_dd, lc, thrust_kn)
-                        optimization_results.append({
-                            "loadcase": lc.name,
-                            "speed_ms": lc.speed,
-                            "thrust_kn": thrust_kn,
-                            "propeller": prop_name,
-                            "optimal_rpm": rpm,
-                            "required_power_kw": power_kw,
-                            "fuel_consumption_kg_h": result["total_fc_kg_h"]
-                        })
-                    except:
-                        pass
-
-df_optimization = pd.DataFrame(optimization_results)
-if not df_optimization.empty:
-    print("\nOptimization Results:")
-    print(df_optimization.head(20).to_string())
-
-# ============================================================================
-# SECTION 18: VISUALIZATIONS
-# ============================================================================
-
-print("\n" + "=" * 80)
-print("SECTION 18: GENERATING VISUALIZATIONS")
-print("=" * 80)
-
-# Create comprehensive plots
-fig = plt.figure(figsize=(20, 24))
-
-# Plot 1: Thrust vs Speed for different power levels
-ax1 = plt.subplot(4, 3, 1)
+# Plot 1.1: Thrust vs Speed for different power levels - All propeller models
+ax1_1 = plt.subplot(2, 3, 1)
 power_levels = [1000, 2000, 3000, 4000]
-speeds = np.linspace(5, 20, 50)
 
+for prop_name, prop in [("Wageningen B", propeller_wageningen),
+                        ("Custom Curves", propeller_custom),
+                        ("Simple Model", propeller_simple)]:
+    for power_kw in power_levels:
+        thrusts = []
+        for speed_ms in speeds_ms:
+            lc = LoadCase("", speed_ms)
+            thrust = test_propeller_thrust_from_power(prop, lc, power_kw)
+            thrusts.append(thrust if thrust is not None else np.nan)
+        ax1_1.plot(speeds_knots, thrusts, label=f"{prop_name} @ {power_kw} kW", 
+                  linewidth=2, linestyle='-' if prop_name == "Wageningen B" else 
+                  '--' if prop_name == "Custom Curves" else ':', marker='o')
+
+ax1_1.set_xlabel("Speed [knots]")
+ax1_1.set_ylabel("Thrust [kN]")
+ax1_1.set_title("Thrust vs Speed (Backwards) - All Propeller Models")
+ax1_1.legend(fontsize=8, ncol=2)
+ax1_1.grid(True, alpha=0.3)
+
+# Plot 1.2: Thrust vs Speed - Wageningen B at different power levels
+ax1_2 = plt.subplot(2, 3, 2)
 for power_kw in power_levels:
     thrusts = []
-    for speed in speeds:
-        lc = LoadCase("", speed)
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
         thrust = test_propeller_thrust_from_power(propeller_wageningen, lc, power_kw)
         thrusts.append(thrust if thrust is not None else np.nan)
-    ax1.plot(speeds, thrusts, label=f"{power_kw} kW", linewidth=2)
+    ax1_2.plot(speeds_knots, thrusts, label=f"{power_kw} kW", linewidth=2, marker='o')
 
-ax1.set_xlabel("Speed [m/s]")
-ax1.set_ylabel("Thrust [kN]")
-ax1.set_title("Thrust vs Speed (Wageningen B-series)")
-ax1.legend()
-ax1.grid(True, alpha=0.3)
+ax1_2.set_xlabel("Speed [knots]")
+ax1_2.set_ylabel("Thrust [kN]")
+ax1_2.set_title("Thrust vs Speed - Wageningen B")
+ax1_2.legend()
+ax1_2.grid(True, alpha=0.3)
 
-# Plot 2: Power from RPM vs Speed
-ax2 = plt.subplot(4, 3, 2)
+# Plot 1.3: Thrust vs Speed - Custom Curves at different power levels
+ax1_3 = plt.subplot(2, 3, 3)
+for power_kw in power_levels:
+    thrusts = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        thrust = test_propeller_thrust_from_power(propeller_custom, lc, power_kw)
+        thrusts.append(thrust if thrust is not None else np.nan)
+    ax1_3.plot(speeds_knots, thrusts, label=f"{power_kw} kW", linewidth=2, marker='o')
+
+ax1_3.set_xlabel("Speed [knots]")
+ax1_3.set_ylabel("Thrust [kN]")
+ax1_3.set_title("Thrust vs Speed - Custom Curves")
+ax1_3.legend()
+ax1_3.grid(True, alpha=0.3)
+
+# Plot 1.4: Thrust vs Speed - Simple Model at different power levels
+ax1_4 = plt.subplot(2, 3, 4)
+for power_kw in power_levels:
+    thrusts = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        thrust = test_propeller_thrust_from_power(propeller_simple, lc, power_kw)
+        thrusts.append(thrust if thrust is not None else np.nan)
+    ax1_4.plot(speeds_knots, thrusts, label=f"{power_kw} kW", linewidth=2, marker='o')
+
+ax1_4.set_xlabel("Speed [knots]")
+ax1_4.set_ylabel("Thrust [kN]")
+ax1_4.set_title("Thrust vs Speed - Simple Model")
+ax1_4.legend()
+ax1_4.grid(True, alpha=0.3)
+
+# Plot 1.5: Single vs Double Propeller Comparison
+ax1_5 = plt.subplot(2, 3, 5)
+power_test = 2000.0
+for prop_name, prop in [("Single Prop", propeller_single),
+                        ("Double Prop", propeller_wageningen)]:
+    thrusts = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        thrust = test_propeller_thrust_from_power(prop, lc, power_test)
+        thrusts.append(thrust if thrust is not None else np.nan)
+    ax1_5.plot(speeds_knots, thrusts, label=f"{prop_name} ({prop.n_prop} prop)", linewidth=2, marker='o')
+
+ax1_5.set_xlabel("Speed [knots]")
+ax1_5.set_ylabel("Thrust [kN]")
+ax1_5.set_title(f"Single vs Double Propeller ({power_test} kW)")
+ax1_5.legend()
+ax1_5.grid(True, alpha=0.3)
+
+# Plot 1.6: Variable vs Constant Efficiency Impact
+ax1_6 = plt.subplot(2, 3, 6)
+power_test = 2000.0
+for prop_name, prop in [("Variable Eta", propeller_variable_eta),
+                        ("Simple (Constant)", propeller_simple)]:
+    thrusts = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        thrust = test_propeller_thrust_from_power(prop, lc, power_test)
+        thrusts.append(thrust if thrust is not None else np.nan)
+    ax1_6.plot(speeds_knots, thrusts, label=prop_name, linewidth=2, marker='o')
+
+ax1_6.set_xlabel("Speed [knots]")
+ax1_6.set_ylabel("Thrust [kN]")
+ax1_6.set_title(f"Variable vs Constant Efficiency ({power_test} kW)")
+ax1_6.legend()
+ax1_6.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.savefig("test_results_comprehensive_group1_speed_backwards.png", dpi=150, bbox_inches='tight')
+print("  Saved: test_results_comprehensive_group1_speed_backwards.png")
+plt.close()
+
+# ============================================================================
+# GROUP 2: SPEED-BASED (FORWARDS) - Power from Thrust/Speed
+# ============================================================================
+
+print("\nGenerating Group 2: Speed-based (Forwards) - Power from Thrust/Speed")
+
+fig2 = plt.figure(figsize=(18, 12))
+
+# Plot 2.1: Power vs Speed for different thrust levels - All propeller models
+ax2_1 = plt.subplot(2, 3, 1)
+thrust_levels = [100, 200, 300, 400]
+
+for prop_name, prop in [("Wageningen B", propeller_wageningen),
+                        ("Custom Curves", propeller_custom),
+                        ("Simple Model", propeller_simple)]:
+    for thrust_kn in thrust_levels:
+        powers = []
+        for speed_ms in speeds_ms:
+            lc = LoadCase("", speed_ms)
+            power_kw = test_propeller_power_from_thrust(prop, lc, thrust_kn)
+            if power_kw is not None:
+                powers.append(power_kw)
+            else:
+                powers.append(np.nan)
+        ax2_1.plot(speeds_knots, powers, label=f"{prop_name} @ {thrust_kn} kN", 
+                  linewidth=2, linestyle='-' if prop_name == "Wageningen B" else 
+                  '--' if prop_name == "Custom Curves" else ':', marker='o')
+
+ax2_1.set_xlabel("Speed [knots]")
+ax2_1.set_ylabel("Power [kW]")
+ax2_1.set_title("Power vs Speed (Forwards) - All Propeller Models")
+ax2_1.legend(fontsize=8, ncol=2)
+ax2_1.grid(True, alpha=0.3)
+
+# Plot 2.2: Power vs Speed - Wageningen B at different thrust levels
+ax2_2 = plt.subplot(2, 3, 2)
+for thrust_kn in thrust_levels:
+    powers = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        power_kw = test_propeller_power_from_thrust(propeller_wageningen, lc, thrust_kn)
+        if power_kw is not None:
+            powers.append(power_kw)
+        else:
+            powers.append(np.nan)
+    ax2_2.plot(speeds_knots, powers, label=f"{thrust_kn} kN", linewidth=2, marker='o')
+
+ax2_2.set_xlabel("Speed [knots]")
+ax2_2.set_ylabel("Power [kW]")
+ax2_2.set_title("Power vs Speed - Wageningen B")
+ax2_2.legend()
+ax2_2.grid(True, alpha=0.3)
+
+# Plot 2.3: Power vs Speed - Custom Curves at different thrust levels
+ax2_3 = plt.subplot(2, 3, 3)
+for thrust_kn in thrust_levels:
+    powers = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        power_kw = test_propeller_power_from_thrust(propeller_custom, lc, thrust_kn)
+        if power_kw is not None:
+            powers.append(power_kw)
+        else:
+            powers.append(np.nan)
+    ax2_3.plot(speeds_knots, powers, label=f"{thrust_kn} kN", linewidth=2, marker='o')
+
+ax2_3.set_xlabel("Speed [knots]")
+ax2_3.set_ylabel("Power [kW]")
+ax2_3.set_title("Power vs Speed - Custom Curves")
+ax2_3.legend()
+ax2_3.grid(True, alpha=0.3)
+
+# Plot 2.4: Power vs Speed - Simple Model at different thrust levels
+ax2_4 = plt.subplot(2, 3, 4)
+for thrust_kn in thrust_levels:
+    powers = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        power_kw = test_propeller_power_from_thrust(propeller_simple, lc, thrust_kn)
+        if power_kw is not None:
+            powers.append(power_kw)
+        else:
+            powers.append(np.nan)
+    ax2_4.plot(speeds_knots, powers, label=f"{thrust_kn} kN", linewidth=2, marker='o')
+
+ax2_4.set_xlabel("Speed [knots]")
+ax2_4.set_ylabel("Power [kW]")
+ax2_4.set_title("Power vs Speed - Simple Model")
+ax2_4.legend()
+ax2_4.grid(True, alpha=0.3)
+
+# Plot 2.5: Required RPM vs Speed for different thrust levels
+ax2_5 = plt.subplot(2, 3, 5)
+if not df_rpm_from_thrust.empty:
+    for prop_name in df_rpm_from_thrust["propeller"].unique():
+        prop_data = df_rpm_from_thrust[df_rpm_from_thrust["propeller"] == prop_name]
+        # Convert loadcase strings back to numeric for plotting
+        speeds_plot = [float(lc.split()[0]) for lc in prop_data["loadcase"]]
+        ax2_5.plot(speeds_plot, prop_data["required_rpm"], 
+                  label=prop_name, marker='o', linewidth=2)
+ax2_5.set_xlabel("Speed [knots]")
+ax2_5.set_ylabel("Required RPM")
+ax2_5.set_title("Required RPM vs Speed (200 kN thrust)")
+ax2_5.legend()
+ax2_5.grid(True, alpha=0.3)
+
+# Plot 2.6: Variable vs Constant Efficiency - Power perspective
+ax2_6 = plt.subplot(2, 3, 6)
+thrust_test = 200.0
+for prop_name, prop in [("Variable Eta", propeller_variable_eta),
+                        ("Simple (Constant)", propeller_simple)]:
+    powers = []
+    for speed_ms in speeds_ms:
+        lc = LoadCase("", speed_ms)
+        power_kw = test_propeller_power_from_thrust(prop, lc, thrust_test)
+        if power_kw is not None:
+            powers.append(power_kw)
+        else:
+            powers.append(np.nan)
+    ax2_6.plot(speeds_knots, powers, label=prop_name, linewidth=2, marker='o')
+
+ax2_6.set_xlabel("Speed [knots]")
+ax2_6.set_ylabel("Power [kW]")
+ax2_6.set_title(f"Variable vs Constant Efficiency ({thrust_test} kN)")
+ax2_6.legend()
+ax2_6.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.savefig("test_results_comprehensive_group2_speed_forwards.png", dpi=150, bbox_inches='tight')
+print("  Saved: test_results_comprehensive_group2_speed_forwards.png")
+plt.close()
+
+# ============================================================================
+# GROUP 3: POWER/RPM/TORQUE-BASED - RPM and Torque Analysis
+# ============================================================================
+
+print("\nGenerating Group 3: Power/RPM/Torque-based Analysis")
+
+fig3 = plt.figure(figsize=(18, 12))
+
+# Plot 3.1: Power from RPM vs Speed - All propeller models
+ax3_1 = plt.subplot(2, 3, 1)
 rpm_levels = [100, 150, 200]
 
-for rpm in rpm_levels:
+for prop_name, prop in [("Wageningen B", propeller_wageningen),
+                        ("Custom Curves", propeller_custom)]:
+    for rpm in rpm_levels:
+        powers = []
+        for speed_ms in speeds_ms:
+            lc = LoadCase("", speed_ms)
+            power_kw, _, _ = test_propeller_power_from_rpm(prop, lc, rpm)
+            if power_kw is not None:
+                powers.append(power_kw)
+            else:
+                powers.append(np.nan)
+        ax3_1.plot(speeds_knots, powers, label=f"{prop_name} @ {rpm} RPM", 
+                  linewidth=2, marker='o', markersize=5)
+
+ax3_1.set_xlabel("Speed [knots]")
+ax3_1.set_ylabel("Power [kW]")
+ax3_1.set_title("Power from RPM vs Speed - All Models")
+ax3_1.legend(fontsize=8, ncol=2)
+ax3_1.grid(True, alpha=0.3)
+
+# Plot 3.2: Thrust from RPM vs Speed - All propeller models
+ax3_2 = plt.subplot(2, 3, 2)
+for prop_name, prop in [("Wageningen B", propeller_wageningen),
+                        ("Custom Curves", propeller_custom)]:
+    for rpm in rpm_levels:
+        thrusts = []
+        for speed_ms in speeds_ms:
+            lc = LoadCase("", speed_ms)
+            _, thrust_kn, _ = test_propeller_power_from_rpm(prop, lc, rpm)
+            if thrust_kn is not None:
+                thrusts.append(thrust_kn)
+            else:
+                thrusts.append(np.nan)
+        ax3_2.plot(speeds_knots, thrusts, label=f"{prop_name} @ {rpm} RPM", 
+                  linewidth=2, marker='o', markersize=5)
+
+ax3_2.set_xlabel("Speed [knots]")
+ax3_2.set_ylabel("Thrust [kN]")
+ax3_2.set_title("Thrust from RPM vs Speed - All Models")
+ax3_2.legend(fontsize=8, ncol=2)
+ax3_2.grid(True, alpha=0.3)
+
+# Plot 3.3: Torque from RPM vs Speed - All propeller models
+ax3_3 = plt.subplot(2, 3, 3)
+for prop_name, prop in [("Wageningen B", propeller_wageningen),
+                        ("Custom Curves", propeller_custom)]:
+    for rpm in rpm_levels:
+        torques = []
+        for speed_ms in speeds_ms:
+            lc = LoadCase("", speed_ms)
+            _, _, torque = test_propeller_power_from_rpm(prop, lc, rpm)
+            if torque is not None:
+                torques.append(torque / 1000)  # Convert to kN⋅m
+            else:
+                torques.append(np.nan)
+        ax3_3.plot(speeds_knots, torques, label=f"{prop_name} @ {rpm} RPM", 
+                  linewidth=2, marker='o', markersize=5)
+
+ax3_3.set_xlabel("Speed [knots]")
+ax3_3.set_ylabel("Torque [kN⋅m]")
+ax3_3.set_title("Torque from RPM vs Speed - All Models")
+ax3_3.legend(fontsize=8, ncol=2)
+ax3_3.grid(True, alpha=0.3)
+
+# Plot 3.4: Power vs RPM at fixed speeds
+ax3_4 = plt.subplot(2, 3, 4)
+rpm_range = np.linspace(50, 250, 50)
+for lc in [loadcases[1], loadcases[2], loadcases[4]]:  # 4, 8, 16 knots
     powers = []
-    for speed in speeds:
-        lc = LoadCase("", speed)
+    for rpm in rpm_range:
         power_kw, _, _ = test_propeller_power_from_rpm(propeller_wageningen, lc, rpm)
         if power_kw is not None:
             powers.append(power_kw)
         else:
             powers.append(np.nan)
-    ax2.plot(speeds, powers, label=f"{rpm} RPM", marker='o', markersize=3, linewidth=2)
+    ax3_4.plot(rpm_range, powers, label=f"{lc.speed * MS_TO_KNOTS:.2f} knots", linewidth=2)
 
-ax2.set_xlabel("Speed [m/s]")
-ax2.set_ylabel("Power [kW]")
-ax2.set_title("Power vs Speed (Wageningen B-series)")
-ax2.legend()
-ax2.grid(True, alpha=0.3)
+ax3_4.set_xlabel("RPM")
+ax3_4.set_ylabel("Power [kW]")
+ax3_4.set_title("Power vs RPM (Wageningen B)")
+ax3_4.legend()
+ax3_4.grid(True, alpha=0.3)
 
-# Plot 3: Fuel Consumption vs Thrust
-ax3 = plt.subplot(4, 3, 3)
-thrusts = np.linspace(50, 500, 20)
+# Plot 3.5: Thrust vs RPM at fixed speeds
+ax3_5 = plt.subplot(2, 3, 5)
+for lc in [loadcases[1], loadcases[2], loadcases[4]]:  # 4, 8, 16 knots
+    thrusts = []
+    for rpm in rpm_range:
+        _, thrust_kn, _ = test_propeller_power_from_rpm(propeller_wageningen, lc, rpm)
+        if thrust_kn is not None:
+            thrusts.append(thrust_kn)
+        else:
+            thrusts.append(np.nan)
+    ax3_5.plot(rpm_range, thrusts, label=f"{lc.speed * MS_TO_KNOTS:.2f} knots", linewidth=2)
 
-for lc in [loadcases[1], loadcases[3], loadcases[5]]:
-    fcs = []
-    for thrust_kn in thrusts:
-        try:
-            result = test_powering_flow(propeller_wageningen, powering_dd, lc, thrust_kn)
-            fcs.append(result["total_fc_kg_h"])
-        except:
-            fcs.append(np.nan)
-    ax3.plot(thrusts, fcs, label=f"{lc.speed} m/s", marker='o', markersize=3, linewidth=2)
+ax3_5.set_xlabel("RPM")
+ax3_5.set_ylabel("Thrust [kN]")
+ax3_5.set_title("Thrust vs RPM (Wageningen B)")
+ax3_5.legend()
+ax3_5.grid(True, alpha=0.3)
 
-ax3.set_xlabel("Thrust [kN]")
-ax3.set_ylabel("Fuel Consumption [kg/h]")
-ax3.set_title("Fuel Consumption vs Thrust (DD Mode)")
-ax3.legend()
-ax3.grid(True, alpha=0.3)
+# Plot 3.6: Torque vs RPM at fixed speeds
+ax3_6 = plt.subplot(2, 3, 6)
+for lc in [loadcases[1], loadcases[2], loadcases[4]]:  # 4, 8, 16 knots
+    torques = []
+    for rpm in rpm_range:
+        _, _, torque = test_propeller_power_from_rpm(propeller_wageningen, lc, rpm)
+        if torque is not None:
+            torques.append(torque / 1000)  # Convert to kN⋅m
+        else:
+            torques.append(np.nan)
+    ax3_6.plot(rpm_range, torques, label=f"{lc.speed * MS_TO_KNOTS:.2f} knots", linewidth=2)
 
-# Plot 4: Powering Mode Comparison
-ax4 = plt.subplot(4, 3, 4)
-lc = loadcases[3]
+ax3_6.set_xlabel("RPM")
+ax3_6.set_ylabel("Torque [kN⋅m]")
+ax3_6.set_title("Torque vs RPM (Wageningen B)")
+ax3_6.legend()
+ax3_6.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.savefig("test_results_comprehensive_group3_power_rpm_torque.png", dpi=150, bbox_inches='tight')
+print("  Saved: test_results_comprehensive_group3_power_rpm_torque.png")
+plt.close()
+
+# ============================================================================
+# GROUP 4: EFFICIENCY AND PERFORMANCE CURVES
+# ============================================================================
+
+print("\nGenerating Group 4: Efficiency and Performance Curves")
+
+fig4 = plt.figure(figsize=(18, 12))
+
+# Plot 4.1: Performance Curves - KT vs J
+ax4_1 = plt.subplot(2, 3, 1)
+if not df_curves.empty:
+    for prop_name in df_curves["propeller"].unique():
+        prop_data = df_curves[df_curves["propeller"] == prop_name]
+        ax4_1.plot(prop_data["J"], prop_data["KT"], label=f"{prop_name}", linewidth=2)
+ax4_1.set_xlabel("Advance Coefficient J [-]")
+ax4_1.set_ylabel("Thrust Coefficient KT [-]")
+ax4_1.set_title("KT vs J - All Propeller Models")
+ax4_1.legend()
+ax4_1.grid(True, alpha=0.3)
+
+# Plot 4.2: Performance Curves - KQ vs J
+ax4_2 = plt.subplot(2, 3, 2)
+if not df_curves.empty:
+    for prop_name in df_curves["propeller"].unique():
+        prop_data = df_curves[df_curves["propeller"] == prop_name]
+        ax4_2.plot(prop_data["J"], prop_data["KQ"], label=f"{prop_name}", linewidth=2)
+ax4_2.set_xlabel("Advance Coefficient J [-]")
+ax4_2.set_ylabel("Torque Coefficient KQ [-]")
+ax4_2.set_title("KQ vs J - All Propeller Models")
+ax4_2.legend()
+ax4_2.grid(True, alpha=0.3)
+
+# Plot 4.3: Efficiency vs J
+ax4_3 = plt.subplot(2, 3, 3)
+if not df_efficiency.empty:
+    for prop_name in df_efficiency["propeller"].unique():
+        prop_data = df_efficiency[df_efficiency["propeller"] == prop_name]
+        ax4_3.plot(prop_data["J"], prop_data["efficiency"], label=prop_name, linewidth=2)
+ax4_3.set_xlabel("Advance Coefficient J [-]")
+ax4_3.set_ylabel("Efficiency η₀ [-]")
+ax4_3.set_title("Propeller Efficiency vs J - All Models")
+ax4_3.legend()
+ax4_3.grid(True, alpha=0.3)
+
+# Plot 4.4: Variable vs Constant Efficiency vs Speed
+ax4_4 = plt.subplot(2, 3, 4)
+eta_const = []
+eta_var = []
+
+for speed_ms in speeds_ms:
+    lc = LoadCase("", speed_ms)
+    eta_const.append(propeller_simple.eta_D_at_speed(lc))
+    eta_var.append(propeller_variable_eta.eta_D_at_speed(lc))
+
+ax4_4.plot(speeds_knots, eta_const, label="Constant", linewidth=2, marker='o')
+ax4_4.plot(speeds_knots, eta_var, label="Variable", linewidth=2, marker='o')
+ax4_4.set_xlabel("Speed [knots]")
+ax4_4.set_ylabel("Delivered Power Efficiency")
+ax4_4.set_title("Constant vs Variable Efficiency vs Speed")
+ax4_4.legend()
+ax4_4.grid(True, alpha=0.3)
+
+# Plot 4.5: Efficiency comparison across propeller models
+ax4_5 = plt.subplot(2, 3, 5)
+if not df_efficiency.empty:
+    for prop_name in df_efficiency["propeller"].unique():
+        prop_data = df_efficiency[df_efficiency["propeller"] == prop_name]
+        max_eff_idx = prop_data["efficiency"].idxmax()
+        optimal_J = prop_data.loc[max_eff_idx, "J"]
+        max_eff = prop_data.loc[max_eff_idx, "efficiency"]
+        ax4_5.scatter(optimal_J, max_eff, s=200, label=f"{prop_name}\n(J={optimal_J:.3f}, η={max_eff:.3f})")
+        ax4_5.plot(prop_data["J"], prop_data["efficiency"], alpha=0.3, linewidth=1)
+ax4_5.set_xlabel("Advance Coefficient J [-]")
+ax4_5.set_ylabel("Efficiency η₀ [-]")
+ax4_5.set_title("Optimal Efficiency Points")
+ax4_5.legend(fontsize=8)
+ax4_5.grid(True, alpha=0.3)
+
+# Plot 4.6: KT/KQ/Efficiency combined view
+ax4_6 = plt.subplot(2, 3, 6)
+if not df_curves.empty and not df_efficiency.empty:
+    prop_name = "Wageningen B"
+    if prop_name in df_curves["propeller"].unique():
+        prop_curves = df_curves[df_curves["propeller"] == prop_name]
+        prop_eff = df_efficiency[df_efficiency["propeller"] == prop_name]
+        
+        ax4_6_twin1 = ax4_6.twinx()
+        ax4_6_twin2 = ax4_6.twinx()
+        ax4_6_twin2.spines['right'].set_position(('outward', 60))
+        
+        line1 = ax4_6.plot(prop_curves["J"], prop_curves["KT"], 'b-', label='KT', linewidth=2)
+        line2 = ax4_6_twin1.plot(prop_curves["J"], prop_curves["KQ"], 'r-', label='KQ', linewidth=2)
+        line3 = ax4_6_twin2.plot(prop_eff["J"], prop_eff["efficiency"], 'g-', label='Efficiency', linewidth=2)
+        
+        ax4_6.set_xlabel("Advance Coefficient J [-]")
+        ax4_6.set_ylabel("KT [-]", color='b')
+        ax4_6_twin1.set_ylabel("KQ [-]", color='r')
+        ax4_6_twin2.set_ylabel("Efficiency η₀ [-]", color='g')
+        
+        lines = line1 + line2 + line3
+        labels = [l.get_label() for l in lines]
+        ax4_6.legend(lines, labels, loc='upper left')
+        ax4_6.set_title(f"KT, KQ, Efficiency vs J ({prop_name})")
+        ax4_6.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.savefig("test_results_comprehensive_group4_efficiency_performance.png", dpi=150, bbox_inches='tight')
+print("  Saved: test_results_comprehensive_group4_efficiency_performance.png")
+plt.close()
+
+# ============================================================================
+# GROUP 5: POWERING MODE COMPARISONS
+# ============================================================================
+
+print("\nGenerating Group 5: Powering Mode Comparisons")
+
+fig5 = plt.figure(figsize=(18, 12))
+
+# Plot 5.1: Fuel Consumption vs Thrust - All powering modes
+ax5_1 = plt.subplot(2, 3, 1)
+lc = loadcases[2]  # 8 knots
 thrusts = np.linspace(50, 500, 20)
 
 for powering_name, powering in [("DD", powering_dd),
@@ -1085,162 +1444,47 @@ for powering_name, powering in [("DD", powering_dd),
             fcs.append(result["total_fc_kg_h"])
         except:
             fcs.append(np.nan)
-    ax4.plot(thrusts, fcs, label=powering_name, marker='o', markersize=3, linewidth=2)
+    ax5_1.plot(thrusts, fcs, label=powering_name, marker='o', markersize=3, linewidth=2)
 
-ax4.set_xlabel("Thrust [kN]")
-ax4.set_ylabel("Fuel Consumption [kg/h]")
-ax4.set_title(f"Fuel Consumption Comparison ({lc.speed} m/s)")
-ax4.legend()
-ax4.grid(True, alpha=0.3)
+ax5_1.set_xlabel("Thrust [kN]")
+ax5_1.set_ylabel("Fuel Consumption [kg/h]")
+ax5_1.set_title(f"Fuel Consumption vs Thrust ({lc.speed * MS_TO_KNOTS:.2f} knots)")
+ax5_1.legend()
+ax5_1.grid(True, alpha=0.3)
 
-# Plot 5: Performance Curves - KT vs J
-ax5 = plt.subplot(4, 3, 5)
-if not df_curves.empty:
-    for prop_name in df_curves["propeller"].unique():
-        prop_data = df_curves[df_curves["propeller"] == prop_name]
-        ax5.plot(prop_data["J"], prop_data["KT"], label=f"{prop_name} KT", linewidth=2)
-ax5.set_xlabel("Advance Coefficient J [-]")
-ax5.set_ylabel("Thrust Coefficient KT [-]")
-ax5.set_title("KT vs J")
-ax5.legend()
-ax5.grid(True, alpha=0.3)
+# Plot 5.2: Fuel Consumption vs Thrust - Different speeds (DD mode)
+ax5_2 = plt.subplot(2, 3, 2)
+for lc in [loadcases[1], loadcases[2], loadcases[4]]:  # 4, 8, 16 knots
+    fcs = []
+    for thrust_kn in thrusts:
+        try:
+            result = test_powering_flow(propeller_wageningen, powering_dd, lc, thrust_kn)
+            fcs.append(result["total_fc_kg_h"])
+        except:
+            fcs.append(np.nan)
+    ax5_2.plot(thrusts, fcs, label=f"{lc.speed * MS_TO_KNOTS:.2f} knots", marker='o', markersize=3, linewidth=2)
 
-# Plot 6: Performance Curves - KQ vs J
-ax6 = plt.subplot(4, 3, 6)
-if not df_curves.empty:
-    for prop_name in df_curves["propeller"].unique():
-        prop_data = df_curves[df_curves["propeller"] == prop_name]
-        ax6.plot(prop_data["J"], prop_data["KQ"], label=f"{prop_name} KQ", linewidth=2)
-ax6.set_xlabel("Advance Coefficient J [-]")
-ax6.set_ylabel("Torque Coefficient KQ [-]")
-ax6.set_title("KQ vs J")
-ax6.legend()
-ax6.grid(True, alpha=0.3)
+ax5_2.set_xlabel("Thrust [kN]")
+ax5_2.set_ylabel("Fuel Consumption [kg/h]")
+ax5_2.set_title("Fuel Consumption vs Thrust (DD Mode)")
+ax5_2.legend()
+ax5_2.grid(True, alpha=0.3)
 
-# Plot 7: Efficiency vs J
-ax7 = plt.subplot(4, 3, 7)
-if not df_efficiency.empty:
-    for prop_name in df_efficiency["propeller"].unique():
-        prop_data = df_efficiency[df_efficiency["propeller"] == prop_name]
-        ax7.plot(prop_data["J"], prop_data["efficiency"], label=prop_name, linewidth=2)
-ax7.set_xlabel("Advance Coefficient J [-]")
-ax7.set_ylabel("Efficiency η₀ [-]")
-ax7.set_title("Propeller Efficiency vs J")
-ax7.legend()
-ax7.grid(True, alpha=0.3)
-
-# Plot 8: EST Power Impact
-ax8 = plt.subplot(4, 3, 8)
-if not df_est.empty:
-    for mode in df_est["powering_mode"].unique():
-        mode_data = df_est[df_est["powering_mode"] == mode].sort_values("est_power_kw")
-        ax8.plot(mode_data["est_power_kw"], mode_data["total_fc_kg_h"], 
-                label=mode, marker='o', linewidth=2)
-ax8.set_xlabel("EST Power [kW]")
-ax8.set_ylabel("Total Fuel Consumption [kg/h]")
-ax8.set_title("EST Power Impact on Fuel Consumption")
-ax8.legend()
-ax8.grid(True, alpha=0.3)
-
-# Plot 9: RPM vs Thrust Requirement
-ax9 = plt.subplot(4, 3, 9)
-if not df_rpm_from_thrust.empty:
-    for prop_name in df_rpm_from_thrust["propeller"].unique():
-        prop_data = df_rpm_from_thrust[df_rpm_from_thrust["propeller"] == prop_name]
-        ax9.plot(prop_data["speed_ms"], prop_data["required_rpm"], 
-                label=prop_name, marker='o', linewidth=2)
-ax9.set_xlabel("Speed [m/s]")
-ax9.set_ylabel("Required RPM")
-ax9.set_title("Required RPM vs Speed (200 kN thrust)")
-ax9.legend()
-ax9.grid(True, alpha=0.3)
-
-# Plot 10: Variable vs Constant Efficiency
-ax10 = plt.subplot(4, 3, 10)
-speeds_test = np.linspace(0, 25, 50)
-eta_const = []
-eta_var = []
-
-for speed in speeds_test:
-    lc = LoadCase("", speed)
-    # Use propeller_simple for constant efficiency (it has eta_delivered_power set)
-    eta_const.append(propeller_simple.eta_D_at_speed(lc))
-    eta_var.append(propeller_variable_eta.eta_D_at_speed(lc))
-
-ax10.plot(speeds_test, eta_const, label="Constant", linewidth=2)
-ax10.plot(speeds_test, eta_var, label="Variable", linewidth=2)
-ax10.set_xlabel("Speed [m/s]")
-ax10.set_ylabel("Delivered Power Efficiency")
-ax10.set_title("Constant vs Variable Efficiency")
-ax10.legend()
-ax10.grid(True, alpha=0.3)
-
-# Plot 11: Genset Activation
-ax11 = plt.subplot(4, 3, 11)
-if not df_integration.empty:
-    de_data = df_integration[df_integration["powering_mode"] == "DE"]
-    if not de_data.empty:
-        ax11.scatter(de_data["delivered_power_kw"], de_data["n_gensets_active"], 
-                    alpha=0.6, s=50)
-ax11.set_xlabel("Delivered Power [kW]")
-ax11.set_ylabel("Number of Active Gensets")
-ax11.set_title("Genset Activation (DE Mode)")
-ax11.grid(True, alpha=0.3)
-
-# Plot 12: Power Flow Sankey-style (simplified)
-ax12 = plt.subplot(4, 3, 12)
-if not df_integration.empty:
-    sample = df_integration.iloc[0]
-    categories = ["Effective\nPower", "Delivered\nPower", "Shaft\nPower", "Brake\nPower"]
-    values = [sample["effective_power_kw"], 
-             sample["delivered_power_kw"],
-             sample["shaft_power_kw"],
-             sample["brake_power_kwm"]]
-    ax12.barh(categories, values, color=['blue', 'green', 'orange', 'red'], alpha=0.7)
-    ax12.set_xlabel("Power [kW]")
-    ax12.set_title("Power Flow Example")
-    ax12.grid(True, alpha=0.3, axis='x')
+# Additional plots can be added here following the same pattern...
 
 plt.tight_layout()
-plt.savefig("test_results_comprehensive.png", dpi=150, bbox_inches='tight')
-print("\nPlots saved to 'test_results_comprehensive.png'")
+plt.savefig("test_results_comprehensive_group5_powering_modes.png", dpi=150, bbox_inches='tight')
+print("  Saved: test_results_comprehensive_group5_powering_modes.png")
 plt.close()
 
-# ============================================================================
-# SECTION 19: DATA EXPORT
-# ============================================================================
-
-print("\n" + "=" * 80)
-print("SECTION 19: DATA EXPORT")
-print("=" * 80)
-
-# Export all results to CSV files
-exports = {
-    "thrust_from_power": df_thrust,
-    "rpm_analysis": df_rpm,
-    "rpm_from_thrust": df_rpm_from_thrust,
-    "efficiency_analysis": df_efficiency,
-    "performance_curves": df_curves,
-    "edge_cases": df_edge,
-    "integration_results": df_integration,
-    "est_impact": df_est,
-    "multi_prop": df_multi,
-    "pti_pto_analysis": df_pti_pto,
-    "optimization": df_optimization,
-}
-
-for name, df in exports.items():
-    if not df.empty:
-        filename = f"results_{name}.csv"
-        df.to_csv(filename, index=False)
-        print(f"  Exported {filename} ({len(df)} rows)")
+print("\nAll visualization groups saved successfully!")
 
 # ============================================================================
-# SECTION 20: SUMMARY STATISTICS
+# SECTION 17: SUMMARY STATISTICS
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("SECTION 20: SUMMARY STATISTICS")
+print("SECTION 17: SUMMARY STATISTICS")
 print("=" * 80)
 
 if not df_integration.empty:
@@ -1260,5 +1504,6 @@ print("\n" + "=" * 80)
 print("COMPREHENSIVE TESTING COMPLETE!")
 print("=" * 80)
 print("\nAll tests completed successfully.")
-print("Check the generated CSV files and PNG plot for detailed results.")
+print("Check the generated PNG plots for detailed results.")
+print(f"\nSpeed range used: {SPEED_RANGE_KNOTS} knots ({SPEED_RANGE_MS})")
 

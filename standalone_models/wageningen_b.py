@@ -331,6 +331,9 @@ class WageningenB:
         if reynolds_number is not None and reynolds_number > 2_000_000:
             kt += self._delta_kt(J, reynolds_number)
 
+        # Ensure non-negative results (Kt must be positive)
+        kt = np.maximum(kt, 0.0)
+
         return float(kt) if J.ndim == 0 else kt
 
     def calculate_kq(
@@ -370,6 +373,9 @@ class WageningenB:
         if reynolds_number is not None and reynolds_number > 2_000_000:
             kq += self._delta_kq(reynolds_number)
 
+        # Ensure non-negative results (Kq must be positive)
+        kq = np.maximum(kq, 0.0)
+
         return float(kq) if J.ndim == 0 else kq
 
     def calculate_efficiency(
@@ -403,10 +409,11 @@ class WageningenB:
         kt = np.asarray(kt)
         kq = np.asarray(kq)
 
-        # Avoid division by zero
+        # Avoid division by zero and very small numbers
+        # Only calculate efficiency where both Kt and Kq are positive
         eta_0 = np.zeros_like(J, dtype=float)
-        nonzero_mask = kq != 0
-        eta_0[nonzero_mask] = (J[nonzero_mask] / (2 * np.pi)) * (kt[nonzero_mask] / kq[nonzero_mask])
+        valid_mask = (kt > 0) & (kq > 1e-6)  # Both Kt and Kq must be positive
+        eta_0[valid_mask] = (J[valid_mask] / (2 * np.pi)) * (kt[valid_mask] / kq[valid_mask])
 
         return float(eta_0) if J.ndim == 0 else eta_0
 

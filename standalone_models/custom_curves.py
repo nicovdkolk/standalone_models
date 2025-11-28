@@ -158,9 +158,10 @@ class CustomCurves:
         kq = np.asarray(self.calculate_kq(J_work))
 
         # Calculate efficiency
+        # Only calculate efficiency where both Kt and Kq are positive
         eta_0 = np.zeros_like(J_work, dtype=float)
-        nonzero_mask = kq > 1e-10  # Avoid division by very small numbers
-        eta_0[nonzero_mask] = (J_work[nonzero_mask] / (2 * np.pi)) * (kt[nonzero_mask] / kq[nonzero_mask])
+        valid_mask = (kt > 0) & (kq > 1e-6)  # Both Kt and Kq must be positive
+        eta_0[valid_mask] = (J_work[valid_mask] / (2 * np.pi)) * (kt[valid_mask] / kq[valid_mask])
 
         # Clamp efficiency to reasonable range
         eta_0 = np.clip(eta_0, 0.0, 1.0)

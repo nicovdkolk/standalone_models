@@ -203,8 +203,32 @@ class Propeller:
         return max(0, thrust * loadcase.speed)
 
     def delivered_power(self, loadcase: LoadCase, effective_power: float) -> float:
-        """Calculate the delivered power for this loadcase."""
-        return effective_power / self.eta_D_at_speed(loadcase)
+        """
+        Calculate the delivered power for this loadcase.
+        
+        If eta_delivered_power is set, uses simple efficiency model.
+        If eta_delivered_power is None but model exists, uses model-based calculation.
+        """
+        # Simple efficiency model
+        if self.eta_delivered_power is not None:
+            return effective_power / self.eta_D_at_speed(loadcase)
+        
+        # Model-based calculation: work backwards from effective power to thrust, then to delivered power
+        if self.model is None or self.physics is None:
+            raise ValueError("eta_delivered_power is not set and no model available")
+        
+        # Handle zero speed or zero effective power
+        if loadcase.speed <= 0 or effective_power <= 0:
+            return 0.0
+        
+        net_thrust = effective_power / loadcase.speed
+        
+        # Use delivered_power_from_thrust to calculate delivered power using the model
+        delivered_power_w = self.delivered_power_from_thrust(net_thrust, loadcase.speed)
+        if delivered_power_w is None:
+            raise ValueError("eta_delivered_power is not set and model calculation failed")
+        
+        return delivered_power_w
 
 
     def thrust_from_power(self, Pe: float, speed: float,
@@ -305,6 +329,10 @@ class Propeller:
 
         Formula: T = KT(J) × ρ × n² × D⁴ / (1-t)
 
+        Note: RPM-based calculations are only available when eta_delivered_power is None.
+        Models with eta_delivered_power set (float or dict) use simple efficiency model
+        and cannot perform RPM-based calculations.
+
         Parameters:
         -----------
         rpm : float
@@ -319,8 +347,10 @@ class Propeller:
         Returns:
         --------
         Optional[float]
-            Thrust [N], or None if no KT/KQ model available
+            Thrust [N], or None if eta_delivered_power is set or no KT/KQ model available
         """
+        if self.eta_delivered_power is not None:
+            return None  # RPM calculations not available when using eta_D efficiency model
         if self.model is None or self.physics is None:
             return None
 
@@ -338,6 +368,10 @@ class Propeller:
 
         Formula: Q = KQ(J) × ρ × n² × D⁵
 
+        Note: RPM-based calculations are only available when eta_delivered_power is None.
+        Models with eta_delivered_power set (float or dict) use simple efficiency model
+        and cannot perform RPM-based calculations.
+
         Parameters:
         -----------
         rpm : float
@@ -350,8 +384,10 @@ class Propeller:
         Returns:
         --------
         Optional[float]
-            Torque [N⋅m], or None if no KT/KQ model available
+            Torque [N⋅m], or None if eta_delivered_power is set or no KT/KQ model available
         """
+        if self.eta_delivered_power is not None:
+            return None  # RPM calculations not available when using eta_D efficiency model
         if self.model is None or self.physics is None:
             return None
 
@@ -368,6 +404,10 @@ class Propeller:
 
         P_delivered = Q × ω = Q × 2π × n
 
+        Note: RPM-based calculations are only available when eta_delivered_power is None.
+        Models with eta_delivered_power set (float or dict) use simple efficiency model
+        and cannot perform RPM-based calculations.
+
         Parameters:
         -----------
         rpm : float
@@ -380,8 +420,10 @@ class Propeller:
         Returns:
         --------
         Optional[float]
-            Delivered power [W], or None if no KT/KQ model available
+            Delivered power [W], or None if eta_delivered_power is set or no KT/KQ model available
         """
+        if self.eta_delivered_power is not None:
+            return None  # RPM calculations not available when using eta_D efficiency model
         Q = self.torque_from_rpm(rpm, speed, wake_fraction)
         if Q is None:
             return None
@@ -399,6 +441,10 @@ class Propeller:
 
         Solves: thrust = thrust_from_rpm(rpm, speed, w, t) for rpm
 
+        Note: RPM-based calculations are only available when eta_delivered_power is None.
+        Models with eta_delivered_power set (float or dict) use simple efficiency model
+        and cannot perform RPM-based calculations.
+
         Parameters:
         -----------
         thrust : float
@@ -415,8 +461,10 @@ class Propeller:
         Returns:
         --------
         Optional[float]
-            RPM [rev/min], or None if no KT/KQ model available
+            RPM [rev/min], or None if eta_delivered_power is set or no KT/KQ model available
         """
+        if self.eta_delivered_power is not None:
+            return None  # RPM calculations not available when using eta_D efficiency model
         if self.model is None or self.physics is None:
             return None
 
@@ -443,6 +491,10 @@ class Propeller:
 
         Solves: power = power_from_rpm(rpm, speed, w) for rpm
 
+        Note: RPM-based calculations are only available when eta_delivered_power is None.
+        Models with eta_delivered_power set (float or dict) use simple efficiency model
+        and cannot perform RPM-based calculations.
+
         Parameters:
         -----------
         power : float
@@ -457,8 +509,10 @@ class Propeller:
         Returns:
         --------
         Optional[float]
-            RPM [rev/min], or None if no KT/KQ model available
+            RPM [rev/min], or None if eta_delivered_power is set or no KT/KQ model available
         """
+        if self.eta_delivered_power is not None:
+            return None  # RPM calculations not available when using eta_D efficiency model
         if self.model is None or self.physics is None:
             return None
 
